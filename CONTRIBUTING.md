@@ -63,10 +63,13 @@ For maintainers:
 
 1. Set the new version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Then run `cargo check --manifest-path src-tauri/Cargo.toml` to update `Cargo.lock`.
 2. In `CHANGELOG.md`, write what's new under `## [x.y.z] - YYYY-MM-DD`.
-3. Commit, then tag and push: `git tag vx.y.z`, then `git push origin master vx.y.z`.
-4. The [Release workflow](.github/workflows/release.yml) does the rest:
+3. Commit and push master, and wait for CI to pass. A pushed tag can't easily be taken back, so the tag comes after.
+4. Tag and push it: `git tag -a vx.y.z -m "Volcon x.y.z"`, then `git push origin vx.y.z`.
+5. The [Release workflow](.github/workflows/release.yml) does the rest:
    - It checks the tag matches all three versions, and that the changelog has notes for it.
    - It builds the installer.
    - It publishes the release, with the installer and the changelog's notes.
+
+CI installs with the npm that comes with Node 24, which can read a lockfile differently from an older npm. If you change dependencies, update the lockfile with that npm, for example `npx npm@11.19.1 install`, or CI's `npm ci` may refuse it.
 
 A version with a hyphen, like `v0.2.0-beta.1`, is published as a pre-release. Volcon only offers those to people who've turned on *Include pre-releases*.
