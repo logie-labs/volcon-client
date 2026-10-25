@@ -22,6 +22,6 @@ To help judge what counts as a problem, this is everything Volcon touches outsid
 - Running apps' names, paths and icons, to show which app is which.
 - MIDI input from the controller you choose.
 - Its own presets, settings and logs, and settings backups it saves to your Downloads folder and can show in Explorer.
-- Its entry in Windows' startup apps, when *Launch with Windows* is on.
+- Its entry in Windows' startup apps, which *Launch with Windows* switches on and off, and which uninstalling removes.
 - Your browser, which it opens only for links to its own and its credited projects' websites.
 - The internet, for updates only: GitHub's list of Volcon's releases, to check for a newer version, and a release's installer when you download it. The installer is only ever fetched from Volcon's own releases and checked against the SHA-256 GitHub lists before it runs.
