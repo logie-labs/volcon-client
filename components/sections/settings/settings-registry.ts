@@ -10,6 +10,7 @@ import {
   RiPaintBrushLine,
   RiShutDownLine,
   RiUsbLine,
+  RiWindowLine,
 } from "@remixicon/react"
 
 import type { ComponentType } from "react"
@@ -18,6 +19,7 @@ import {
   AboutSection,
   AppearanceSection,
   BackupSection,
+  BehaviourSection,
   ControllerSection,
   DiagnosticsSection,
   MappingSection,
@@ -56,6 +58,7 @@ export type SettingsNavGroup = {
 const pageUi: Record<SettingsSectionId, Pick<SettingsSectionDefinition, "icon" | "component">> = {
   appearance: { icon: RiPaintBrushLine, component: AppearanceSection },
   startup: { icon: RiShutDownLine, component: StartupSection },
+  behaviour: { icon: RiWindowLine, component: BehaviourSection },
   navigation: { icon: RiArrowLeftRightLine, component: NavigationSection },
   overlay: { icon: RiLayout2Line, component: OverlaySection },
   mapping: { icon: RiEqualizer3Line, component: MappingSection },

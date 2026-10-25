@@ -2,7 +2,7 @@ use anyhow::Error as AnyhowError;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, WebviewWindow, WindowEvent,
 };
 
 use crate::{bridge::BridgeService, config, server::input::midi::midi_inputs};
@@ -55,7 +55,7 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         window.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                let _ = window_for_event.hide();
+                close_main_window(&window_for_event);
             }
         });
 
@@ -193,6 +193,42 @@ fn preset_menu_id(preset_id: &str) -> String {
 
 fn controller_menu_id(controller_id: &str) -> String {
     format!("{CONTROLLER_PREFIX}{controller_id}")
+}
+
+/// What closing the main window does, as Settings → Behaviour has it: into the
+/// tray, so the controls keep working - or quitting, once the window has asked
+/// if Settings says to ask.
+fn close_main_window<R: Runtime>(window: &WebviewWindow<R>) {
+    let (to_tray, ask) = config::load_or_create(window.app_handle())
+        .map(|cfg| (cfg.close_to_tray, cfg.ask_before_quitting))
+        .unwrap_or((true, true));
+
+    if to_tray {
+        let _ = window.hide();
+    } else if ask {
+        // In view, wherever it was closed from - the taskbar while minimised,
+        // say - so the question can be seen.
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.app_handle().emit_to("main", "app:quit-requested", ());
+    } else {
+        window.app_handle().exit(0);
+    }
+}
+
+/// Quits Volcon, from the window's question when closing would quit it.
+#[tauri::command]
+pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
+    app.exit(0);
+}
+
+/// Puts the main window away in the tray, from the same question.
+#[tauri::command]
+pub fn hide_to_tray<R: Runtime>(app: AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
 }
 
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {

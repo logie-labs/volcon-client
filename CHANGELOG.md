@@ -4,6 +4,21 @@ Every release of Volcon, newest first. The format follows [Keep a Changelog](htt
 
 Each version's notes here become its release notes on GitHub, and what Volcon shows under *What's new* on Settings → Updates.
 
+## [0.1.6] - 2026-10-25
+
+### Added
+
+- Settings → Behaviour, for what closing the window does: close to the tray, as before, or quit Volcon. Quitting asks first, since your controls stop working until Volcon is opened again - and the page says so too.
+
+### Changed
+
+- Launch with Windows is on when Volcon is first installed, and is the only setting on Settings → Startup. Start in the tray and Reopen where you left off are now on Settings → Behaviour, under Opening Volcon.
+- The installer has Volcon's own icon, and the uninstaller a red one of its own.
+
+### Fixed
+
+- Report a problem opens GitHub in your browser instead of File Explorer, and so do Volcon's other links.
+
 ## [0.1.5] - 2026-10-25
 
 ### Changed
@@ -59,6 +74,7 @@ The first release.
 - A check for new versions on GitHub, at most once a day, with what's new in them.
 - Report a problem, on Settings → About, which starts a bug report with your versions filled in.
 
+[0.1.6]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.6
 [0.1.5]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.5
 [0.1.4]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.4
 [0.1.1]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.1

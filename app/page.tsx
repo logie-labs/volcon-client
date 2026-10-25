@@ -12,6 +12,7 @@ import { useAppCommands } from "@/components/command-palette/app-commands";
 import { useRegisterCommands } from "@/components/command-palette/command-palette-context";
 import { justResetKey, startSettingsSync, useSettingsConfig } from "@/components/sections/settings/settings-config";
 import { SettingsUndoDialog } from "@/components/sections/settings/settings-undo";
+import { QuitDialog } from "@/components/quit-dialog";
 import { goBack, goForward } from "@/lib/navigation-history";
 import { toast } from "@/lib/notifications";
 import { startUpdateChecks } from "@/lib/updates";
@@ -147,6 +148,8 @@ export default function Page() {
       {/* Here rather than on the Settings screen: an Undo that asks first can
           be pressed from anywhere. */}
       <SettingsUndoDialog />
+      {/* Closing the window can quit Volcon, if Settings → Behaviour says so; this asks first. */}
+      <QuitDialog />
     </div>
   );
 }

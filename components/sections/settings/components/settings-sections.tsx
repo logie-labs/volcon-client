@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { RiDeleteBin6Line, RiEyeLine, RiLayout2Line } from "@remixicon/react"
+import { RiDeleteBin6Line, RiErrorWarningLine, RiEyeLine, RiLayout2Line } from "@remixicon/react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -87,11 +87,42 @@ export function StartupSection() {
           disabled={isDevelopment}
           disabledReason="Not available in development builds."
         />
-        <SettingSwitch path="startup.openToTray" />
       </SettingsGroup>
-      <SettingsGroup title="Window">
+    </SettingsPage>
+  )
+}
+
+export function BehaviourSection() {
+  const { config } = useSettings()
+  const closingQuits = !config.behaviour.closeToTray
+
+  return (
+    <SettingsPage id="behaviour">
+      <SettingsGroup title="Opening Volcon">
+        <SettingSwitch path="startup.openToTray" />
         <SettingSwitch path="startup.reopenLastSection" />
       </SettingsGroup>
+      <SettingsGroup title="Closing the window">
+        <SettingSwitch path="behaviour.closeToTray" />
+        <SettingSwitch
+          path="behaviour.askBeforeQuitting"
+          disabled={!closingQuits}
+          disabledReason="Only asks when closing the window quits Volcon."
+        />
+      </SettingsGroup>
+      {/* Said here as well as when it happens: it's easy to forget. */}
+      {closingQuits ? (
+        <p
+          role="note"
+          className="flex items-start gap-2.5 border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-pretty text-amber-700 dark:text-amber-300"
+        >
+          <RiErrorWarningLine aria-hidden className="mt-px size-4 shrink-0" />
+          <span>
+            Closing Volcon&apos;s window quits it. Your controls stop changing volume until you open
+            Volcon again - from the Start menu, or when Windows starts if Launch with Windows is on.
+          </span>
+        </p>
+      ) : null}
     </SettingsPage>
   )
 }

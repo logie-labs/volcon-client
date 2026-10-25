@@ -40,7 +40,7 @@ Each control sets the volume of the apps you give it, the moment you move it.
 
 **Out of the way**
 
-- Starts with Windows, straight into the tray if you like, and closing the window keeps it running there.
+- Starts with Windows, straight into the tray if you like, and closing the window keeps it running there - or quits it, if you'd rather.
 - A command menu, on <kbd>Ctrl</kbd> + <kbd>Alt</kbd>, gets you anywhere and does most things from the keyboard.
 - Light and dark themes, or whichever Windows is using.
 - Back up your settings to a file and bring them back on another PC.

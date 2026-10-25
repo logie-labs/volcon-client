@@ -97,19 +97,49 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Opens one of the app's links in the default browser.
+/// Opens one of the app's links in the default browser, through the shell's
+/// own "open", which hands a URL straight to the browser. `explorer <url>`
+/// parses its command line its own way: a long link full of `=` and `&` - a
+/// bug report's - opened File Explorer instead.
 #[tauri::command]
 pub fn open_external(url: String) -> Result<(), String> {
+    use windows::core::{w, HSTRING, PCWSTR};
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::System::Com::{
+        CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+    };
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
     if !is_app_link(&url) {
         return Err(format!("{url} isn't one of the app's links"));
     }
 
-    Command::new("explorer")
-        .arg(&url)
-        .spawn()
-        .map_err(|err| err.to_string())?;
+    // The shell may hand the link to a handler that needs COM.
+    let com = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) }.is_ok();
+    let result = unsafe {
+        ShellExecuteW(
+            HWND::default(),
+            w!("open"),
+            &HSTRING::from(url.as_str()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
 
-    Ok(())
+    if com {
+        unsafe { CoUninitialize() };
+    }
+
+    // Above 32 means it opened; anything else is an error code.
+    let code = result.0 as isize;
+
+    if code > 32 {
+        Ok(())
+    } else {
+        Err(format!("Windows couldn't open the link (error {code})"))
+    }
 }
 
 /// A bare `.json` file name: no folders, nothing Windows reserves.

@@ -51,7 +51,17 @@ pub struct PresetConfig {
     pub presets: Vec<PresetEntry>,
     #[serde(default, alias = "startMinimized")]
     pub open_to_tray: bool,
+    /// Closing the main window hides Volcon in the tray; off, it quits.
+    #[serde(default = "on")]
+    pub close_to_tray: bool,
+    /// When closing quits, the window asks first.
+    #[serde(default = "on")]
+    pub ask_before_quitting: bool,
     pub node_graphs: Vec<serde_json::Value>,
+}
+
+fn on() -> bool {
+    true
 }
 
 impl Default for PresetConfig {
@@ -61,6 +71,8 @@ impl Default for PresetConfig {
             active_preset_id: String::new(),
             presets: vec![],
             open_to_tray: false,
+            close_to_tray: true,
+            ask_before_quitting: true,
             node_graphs: vec![],
         }
     }
@@ -150,8 +162,16 @@ pub fn load_preset_config<R: tauri::Runtime>(
 #[tauri::command]
 pub fn save_preset_config<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
-    config: PresetConfig,
+    mut config: PresetConfig,
 ) -> Result<(), String> {
+    // How the window opens and closes belongs to Settings, which sends it on
+    // its own; a preset saved from an older copy mustn't put old values back.
+    if let Ok(saved) = load_or_create(&app) {
+        config.open_to_tray = saved.open_to_tray;
+        config.close_to_tray = saved.close_to_tray;
+        config.ask_before_quitting = saved.ask_before_quitting;
+    }
+
     save(&app, &config).and_then(|_| {
         if let Err(error) = crate::tray::refresh_tray_menu(&app) {
             log::warn!("failed to refresh tray menu: {error}");
@@ -159,6 +179,19 @@ pub fn save_preset_config<R: tauri::Runtime>(
 
         Ok(())
     })
+}
+
+/// What closing the main window does, as Settings → Behaviour has it.
+#[tauri::command]
+pub fn set_close_behaviour<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    close_to_tray: bool,
+    ask_before_quitting: bool,
+) -> Result<(), String> {
+    let mut cfg = load_or_create(&app)?;
+    cfg.close_to_tray = close_to_tray;
+    cfg.ask_before_quitting = ask_before_quitting;
+    save(&app, &cfg)
 }
 
 #[tauri::command]
@@ -193,6 +226,22 @@ mod tests {
             value: 0,
             controlled_apps: vec![],
         }
+    }
+
+    #[test]
+    fn a_config_from_before_closing_could_quit_closes_to_the_tray() {
+        let config: PresetConfig = serde_json::from_value(serde_json::json!({
+            "schemaVersion": 1,
+            "activePresetId": "",
+            "presets": [],
+            "openToTray": true,
+            "nodeGraphs": [],
+        }))
+        .expect("an older config still reads");
+
+        assert!(config.open_to_tray);
+        assert!(config.close_to_tray);
+        assert!(config.ask_before_quitting);
     }
 
     #[test]

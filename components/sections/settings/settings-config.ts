@@ -78,6 +78,12 @@ export type SettingsConfig = {
     reopenLastSection: boolean
     openToTray: boolean
   }
+  behaviour: {
+    /** Closing the window hides Volcon in the tray; off, it quits. */
+    closeToTray: boolean
+    /** When closing quits, ask first: the controls stop working once it's gone. */
+    askBeforeQuitting: boolean
+  }
   controller: {
     logarithmicSensitivity: {
       enabled: boolean
@@ -187,9 +193,13 @@ export const defaultSettingsConfig: SettingsConfig = {
     levelMeters: true,
   },
   startup: {
-    launchOnStartup: false,
+    launchOnStartup: true,
     reopenLastSection: true,
     openToTray: false,
+  },
+  behaviour: {
+    closeToTray: true,
+    askBeforeQuitting: true,
   },
   controller: {
     logarithmicSensitivity: {
@@ -391,6 +401,13 @@ export function normalizeSettingsConfig(
         defaultSettingsConfig.startup.reopenLastSection
       ),
       openToTray: flag(parsed?.startup?.openToTray, defaultSettingsConfig.startup.openToTray),
+    },
+    behaviour: {
+      closeToTray: flag(parsed?.behaviour?.closeToTray, defaultSettingsConfig.behaviour.closeToTray),
+      askBeforeQuitting: flag(
+        parsed?.behaviour?.askBeforeQuitting,
+        defaultSettingsConfig.behaviour.askBeforeQuitting
+      ),
     },
     notifications: normalizeNotificationsConfig(parsed?.notifications),
     mapping: {
@@ -734,13 +751,14 @@ function complainAboutLaunch(wanted: boolean, reason: string) {
  * sends anything back, so the setting and Windows can't keep flipping each
  * other.
  *
- * Whether it opens hidden is the backend's to read at launch, and is sent to it
- * whenever it changes.
+ * Whether it opens hidden, and what closing the window does, are the backend's
+ * to act on, and are sent to it whenever they change.
  */
 function startStartupSync() {
   // A development build would register its own, temporary executable.
   const managesWindows = process.env.NODE_ENV === "production"
   let applied: SettingsConfig["startup"] | null = null
+  let appliedBehaviour: SettingsConfig["behaviour"] | null = null
   /** What Windows was last read as, or set to; null until it's been asked. */
   let windowsSays: boolean | null = null
   let sending = false
@@ -820,6 +838,22 @@ function startStartupSync() {
     if (!previous || previous.openToTray !== next.openToTray) {
       void import("@tauri-apps/api/core")
         .then(({ invoke }) => invoke("set_open_to_tray", { enabled: next.openToTray }))
+        .catch(() => {})
+    }
+
+    // What closing the window does is the backend's to act on, the moment it's
+    // closed - so it's sent the same way.
+    const behaviour = getSettingsSnapshot().behaviour
+    const previousBehaviour = appliedBehaviour
+    appliedBehaviour = behaviour
+
+    if (
+      !previousBehaviour ||
+      previousBehaviour.closeToTray !== behaviour.closeToTray ||
+      previousBehaviour.askBeforeQuitting !== behaviour.askBeforeQuitting
+    ) {
+      void import("@tauri-apps/api/core")
+        .then(({ invoke }) => invoke("set_close_behaviour", { ...behaviour }))
         .catch(() => {})
     }
   }

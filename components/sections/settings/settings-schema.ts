@@ -13,6 +13,7 @@ import {
 export type SettingsSectionId =
   | "appearance"
   | "startup"
+  | "behaviour"
   | "navigation"
   | "overlay"
   | "mapping"
@@ -51,7 +52,13 @@ export const settingsPages: SettingsPageInfo[] = [
     id: "startup",
     group: "general",
     title: "Startup",
-    description: "Whether Volcon starts with Windows, and how it opens.",
+    description: "Whether Volcon starts when you sign in to Windows.",
+  },
+  {
+    id: "behaviour",
+    group: "general",
+    title: "Behaviour",
+    description: "How Volcon opens, and what happens when you close its window.",
   },
   {
     id: "navigation",
@@ -207,8 +214,8 @@ export const settingEntries: SettingEntry[] = [
   {
     id: "startup.openToTray",
     path: "startup.openToTray",
-    page: "startup",
-    group: "Launch",
+    page: "behaviour",
+    group: "Opening Volcon",
     label: "Start in the tray",
     description:
       "Open hidden in the notification area instead of showing the window. Applies from the next launch.",
@@ -217,11 +224,33 @@ export const settingEntries: SettingEntry[] = [
   {
     id: "startup.reopenLastSection",
     path: "startup.reopenLastSection",
-    page: "startup",
-    group: "Window",
+    page: "behaviour",
+    group: "Opening Volcon",
     label: "Reopen where you left off",
     description: "Open on the screen and settings page you last had open.",
     keywords: ["restore", "remember", "last", "screen", "section"],
+  },
+
+  // Behaviour
+  {
+    id: "behaviour.closeToTray",
+    path: "behaviour.closeToTray",
+    page: "behaviour",
+    group: "Closing the window",
+    label: "Close to tray",
+    description:
+      "Closing the window keeps Volcon running in the tray, so your controls keep working. Turned off, closing the window quits Volcon.",
+    keywords: ["close", "tray", "quit", "exit", "background", "keep running", "minimise"],
+  },
+  {
+    id: "behaviour.askBeforeQuitting",
+    path: "behaviour.askBeforeQuitting",
+    page: "behaviour",
+    group: "Closing the window",
+    label: "Ask before quitting",
+    description:
+      "When closing the window quits Volcon, check first, since your controls stop working until it's opened again.",
+    keywords: ["confirm", "warn", "warning", "quit", "exit", "close"],
   },
 
   // Overlay: the first switch is the page's own, above everything else.

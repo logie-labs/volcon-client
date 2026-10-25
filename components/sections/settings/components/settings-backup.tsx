@@ -295,8 +295,8 @@ export function BackupSection() {
 
   /**
    * Back to a fresh install: no presets, every setting at its default, and
-   * nothing remembered. Launch with Windows goes off, a downloaded update goes,
-   * and Volcon reloads to start clean.
+   * nothing remembered. Launch with Windows goes back to how Volcon ships, a
+   * downloaded update goes, and Volcon reloads to start clean.
    */
   const resetEverything = async () => {
     setConfirming(null)
@@ -306,7 +306,7 @@ export function BackupSection() {
       await resetAllPresets()
 
       if (process.env.NODE_ENV === "production") {
-        await setLaunchAtSignIn(false).catch(() => {})
+        await setLaunchAtSignIn(createDefaultSettingsConfig().startup.launchOnStartup).catch(() => {})
       }
 
       await discardUpdateDownload().catch(() => {})
@@ -345,7 +345,7 @@ export function BackupSection() {
     everything: {
       title: "Reset everything?",
       description:
-        "Volcon goes back to how it was when you installed it: every setting, preset and mapping, the notification history, and what it remembers about your apps. Launch with Windows is turned off too. This can't be undone, so export your settings first if you might want them back.",
+        "Volcon goes back to how it was when you installed it: every setting, preset and mapping, the notification history, and what it remembers about your apps. Launch with Windows goes back on, as after installing. This can't be undone, so export your settings first if you might want them back.",
       button: "Reset everything",
       run: () => void resetEverything(),
     },

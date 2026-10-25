@@ -177,7 +177,8 @@ fn remembered<R: Runtime>(app: &AppHandle<R>) -> Option<bool> {
 
 /// Lists Volcon in Startup apps, pointing at `exe`, if it isn't already. A
 /// listing that's there keeps its switch, wherever it pointed. One made afresh
-/// is switched as Volcon last knew it, `remembered` - off, the first time.
+/// is switched as Volcon last knew it, `remembered` - on, the first time, as
+/// Volcon ships.
 fn ensure_listed(name: &HSTRING, exe: &Path, remembered: Option<bool>) -> Result<(), String> {
     let wanted = launch_command(exe);
 
@@ -185,7 +186,7 @@ fn ensure_listed(name: &HSTRING, exe: &Path, remembered: Option<bool>) -> Result
         Some(command) if command.trim() == wanted => Ok(()),
         Some(_) => set_value(RUN_KEY, name, REG_SZ, &registry_text(&wanted)),
         None => {
-            let enabled = remembered.unwrap_or(false);
+            let enabled = remembered.unwrap_or(true);
 
             // The switch first, so Windows never sees a listing it would start
             // by mistake.
@@ -364,38 +365,40 @@ mod tests {
     }
 
     #[test]
-    fn a_listing_starts_off_and_keeps_its_switch_through_moves_and_reinstalls() {
+    fn a_listing_starts_on_and_keeps_its_switch_through_moves_and_reinstalls() {
         let listing = TestListing::new("listing");
         let name = &listing.0;
         let installed = Path::new(r"C:\Users\Jo Bloggs\AppData\Local\Volcon\volcon.exe");
+        let uninstall = || unsafe {
+            let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, name);
+        };
 
         ensure_listed(name, installed, None).unwrap();
         assert_eq!(
             registered_command(name).as_deref(),
             Some(r#""C:\Users\Jo Bloggs\AppData\Local\Volcon\volcon.exe""#)
         );
-        assert!(!is_enabled(name), "a first listing starts off");
+        assert!(is_enabled(name), "a first listing starts on, as Volcon ships");
 
-        listing.switch(true);
-        assert!(is_enabled(name));
-
-        // Installed somewhere else: the listing follows, the switch stays.
-        ensure_listed(name, Path::new(r"D:\Apps\Volcon\volcon.exe"), Some(false)).unwrap();
-        assert_eq!(registered_command(name).as_deref(), Some(r#""D:\Apps\Volcon\volcon.exe""#));
-        assert!(is_enabled(name));
-
-        // Uninstalled, with Windows' old record left saying "on": it comes back
-        // as Volcon remembers it, and off when it doesn't.
-        unsafe {
-            let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, name);
-        }
-        ensure_listed(name, installed, None).unwrap();
+        listing.switch(false);
         assert!(!is_enabled(name));
 
-        unsafe {
-            let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, name);
-        }
-        ensure_listed(name, installed, Some(true)).unwrap();
+        // Installed somewhere else: the listing follows, the switch stays.
+        ensure_listed(name, Path::new(r"D:\Apps\Volcon\volcon.exe"), Some(true)).unwrap();
+        assert_eq!(registered_command(name).as_deref(), Some(r#""D:\Apps\Volcon\volcon.exe""#));
+        assert!(!is_enabled(name));
+
+        // Uninstalled, with Windows' old record left behind: it comes back as
+        // Volcon remembers it, whatever the record says...
+        listing.switch(true);
+        uninstall();
+        ensure_listed(name, installed, Some(false)).unwrap();
+        assert!(!is_enabled(name));
+
+        // ...and as it ships when Volcon has no note of it.
+        listing.switch(false);
+        uninstall();
+        ensure_listed(name, installed, None).unwrap();
         assert!(is_enabled(name));
     }
 
@@ -418,14 +421,14 @@ mod tests {
         // Time for the watch to start before anything changes.
         std::thread::sleep(Duration::from_millis(300));
 
-        listing.switch(true);
-        assert_eq!(hear.recv_timeout(Duration::from_secs(5)), Ok(true));
-
         listing.switch(false);
         assert_eq!(hear.recv_timeout(Duration::from_secs(5)), Ok(false));
 
-        // Switched off again: nothing changed, so nothing's said.
-        listing.switch(false);
+        listing.switch(true);
+        assert_eq!(hear.recv_timeout(Duration::from_secs(5)), Ok(true));
+
+        // Switched on again: nothing changed, so nothing's said.
+        listing.switch(true);
         assert!(hear.recv_timeout(Duration::from_millis(500)).is_err());
     }
 }
