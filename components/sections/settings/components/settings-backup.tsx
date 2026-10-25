@@ -1,8 +1,21 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { RiDownload2Line, RiResetLeftLine, RiUpload2Line } from "@remixicon/react"
+import {
+  RiDeleteBin6Line,
+  RiDownload2Line,
+  RiLinkUnlinkM,
+  RiResetLeftLine,
+  RiUpload2Line,
+} from "@remixicon/react"
 
+import {
+  resetAllAssignments,
+  resetAllPresets,
+  restorePresetConfig,
+  savedAssignmentCount,
+  type AssignmentCount,
+} from "@/components/sections/mapping/mapping"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -12,14 +25,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { revealInExplorer, saveSettingsBackup } from "@/lib/bridge-client"
+import {
+  discardUpdateDownload,
+  revealInExplorer,
+  saveSettingsBackup,
+  setLaunchAtSignIn,
+} from "@/lib/bridge-client"
 import { toast } from "@/lib/notifications"
 
 import { settingChanges } from "../setting-changes"
 import { useSettings } from "../settings-context"
 import {
   createDefaultSettingsConfig,
+  justResetKey,
   normalizeSettingsConfig,
+  saveSettingsConfig,
   type SettingsConfig,
 } from "../settings-config"
 import { allDefault, allSettingPaths } from "../settings-schema"
@@ -64,10 +84,19 @@ function today() {
 
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+type Confirming = "settings" | "assignments" | "everything"
+
 export function BackupSection() {
   const { config, updateConfig } = useSettings()
   const fileInput = useRef<HTMLInputElement>(null)
-  const [confirmingReset, setConfirmingReset] = useState(false)
+  const [confirming, setConfirming] = useState<Confirming | null>(null)
+  // Which question the dialog asks, kept while it closes so its words don't
+  // vanish mid-fade.
+  const [asking, setAsking] = useState<Confirming>("settings")
+  const [assigned, setAssigned] = useState<AssignmentCount | null>(null)
+  const [wiping, setWiping] = useState(false)
   const pristine = allDefault(config)
 
   const exportSettings = async () => {
@@ -184,7 +213,7 @@ export function BackupSection() {
     const next = createDefaultSettingsConfig()
 
     updateConfig(() => next)
-    setConfirmingReset(false)
+    setConfirming(null)
     toast.success("Settings reset", {
       source: "settings",
       description: "Every setting is back to how Volcon ships.",
@@ -201,6 +230,126 @@ export function BackupSection() {
         }),
     })
   }
+
+  const ask = (which: Confirming) => {
+    setAsking(which)
+    setConfirming(which)
+  }
+
+  /** Counted first, so the question can say what would go. */
+  const askToResetAssignments = async () => {
+    let count: AssignmentCount
+
+    try {
+      count = await savedAssignmentCount()
+    } catch (error) {
+      toast.error("Couldn't read your mappings", {
+        source: "settings",
+        detail: reason(error),
+        event: { type: "action-failed", attempted: "Count the apps on your controls", reason: reason(error) },
+      })
+      return
+    }
+
+    if (count.apps === 0) {
+      toast.info("Nothing to reset", {
+        source: "settings",
+        description: "No control has an app on it, on any preset.",
+      })
+      return
+    }
+
+    setAssigned(count)
+    ask("assignments")
+  }
+
+  const resetAssignments = async () => {
+    setConfirming(null)
+
+    try {
+      const { previous, count } = await resetAllAssignments()
+      const apps = plural(count.apps, "app")
+      const across = count.presets > 1 ? ` across ${plural(count.presets, "preset")}` : ""
+
+      toast.success("Assignments reset", {
+        source: "settings",
+        description: `${apps} taken off ${plural(count.controls, "control")}${across}, and handed back to Windows.`,
+        undo: () => {
+          restorePresetConfig(previous)
+
+          return {
+            done: true,
+            title: "Assignments put back",
+            description: `${apps} back where ${count.apps === 1 ? "it was" : "they were"}.`,
+          }
+        },
+      })
+    } catch (error) {
+      toast.error("Couldn't reset assignments", {
+        source: "settings",
+        detail: reason(error),
+        event: { type: "action-failed", attempted: "Take every app off every control", reason: reason(error) },
+      })
+    }
+  }
+
+  /**
+   * Back to a fresh install: no presets, every setting at its default, and
+   * nothing remembered. Launch with Windows goes off, a downloaded update goes,
+   * and Volcon reloads to start clean.
+   */
+  const resetEverything = async () => {
+    setConfirming(null)
+    setWiping(true)
+
+    try {
+      await resetAllPresets()
+
+      if (process.env.NODE_ENV === "production") {
+        await setLaunchAtSignIn(false).catch(() => {})
+      }
+
+      await discardUpdateDownload().catch(() => {})
+      // Sent on to the overlay and the backend before what Volcon remembers is
+      // cleared.
+      saveSettingsConfig(createDefaultSettingsConfig())
+      window.localStorage.clear()
+      window.sessionStorage.setItem(justResetKey, "1")
+      window.location.reload()
+    } catch (error) {
+      setWiping(false)
+      toast.error("Couldn't reset everything", {
+        source: "settings",
+        detail: reason(error),
+        event: { type: "action-failed", attempted: "Reset Volcon to a fresh install", reason: reason(error) },
+      })
+    }
+  }
+
+  const confirmation = {
+    settings: {
+      title: "Reset settings?",
+      description:
+        "Every setting goes back to how Volcon ships, including the controller curve, deadzone and startup options. Your mappings and presets stay as they are.",
+      button: "Reset settings",
+      run: resetAll,
+    },
+    assignments: {
+      title: "Reset assignments?",
+      description: assigned
+        ? `This takes ${plural(assigned.apps, "app")} off ${plural(assigned.controls, "control")}${assigned.presets > 1 ? `, across ${plural(assigned.presets, "preset")}` : ""}, and hands them back to Windows. Your presets, and the controls you've learned, stay ready for new apps. You can undo it from the notification.`
+        : "",
+      button: "Reset assignments",
+      run: () => void resetAssignments(),
+    },
+    everything: {
+      title: "Reset everything?",
+      description:
+        "Volcon goes back to how it was when you installed it: every setting, preset and mapping, the notification history, and what it remembers about your apps. Launch with Windows is turned off too. This can't be undone, so export your settings first if you might want them back.",
+      button: "Reset everything",
+      run: () => void resetEverything(),
+    },
+  }[asking]
 
   return (
     <SettingsPage id="backup">
@@ -242,36 +391,56 @@ export function BackupSection() {
         <SettingAction
           id="backup.resetAll"
           disabled={pristine}
-          disabledReason="Everything is already at its default."
+          disabledReason="Every setting is already at its default."
         >
           <Button
             type="button"
             variant="destructive"
             size="sm"
             disabled={pristine}
-            onClick={() => setConfirmingReset(true)}
+            onClick={() => ask("settings")}
           >
             <RiResetLeftLine />
-            Reset all…
+            Reset settings…
+          </Button>
+        </SettingAction>
+        <SettingAction id="backup.resetAssignments">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            onClick={() => void askToResetAssignments()}
+          >
+            <RiLinkUnlinkM />
+            Reset assignments…
+          </Button>
+        </SettingAction>
+        <SettingAction id="backup.resetEverything">
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            disabled={wiping}
+            onClick={() => ask("everything")}
+          >
+            <RiDeleteBin6Line />
+            {wiping ? "Resetting…" : "Reset everything…"}
           </Button>
         </SettingAction>
       </SettingsGroup>
 
-      <Dialog open={confirmingReset} onOpenChange={setConfirmingReset}>
+      <Dialog open={confirming !== null} onOpenChange={(open) => !open && setConfirming(null)}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Reset all settings?</DialogTitle>
-            <DialogDescription>
-              Every setting goes back to how Volcon ships, including the controller curve,
-              deadzone and startup options. Your mappings and presets stay as they are.
-            </DialogDescription>
+            <DialogTitle>{confirmation.title}</DialogTitle>
+            <DialogDescription>{confirmation.description}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmingReset(false)}>
+            <Button type="button" variant="outline" onClick={() => setConfirming(null)}>
               Cancel
             </Button>
-            <Button type="button" variant="destructive" onClick={resetAll}>
-              Reset all settings
+            <Button type="button" variant="destructive" onClick={confirmation.run}>
+              {confirmation.button}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -24,4 +24,4 @@ To help judge what counts as a problem, this is everything Volcon touches outsid
 - Its own presets, settings and logs, and settings backups it saves to your Downloads folder and can show in Explorer.
 - Its entry in Windows' startup apps, when *Launch with Windows* is on.
 - Your browser, which it opens only for links to its own and its credited projects' websites.
-- One request over the internet: GitHub's list of Volcon's releases, to check for a newer version.
+- The internet, for updates only: GitHub's list of Volcon's releases, to check for a newer version, and a release's installer when you download it. The installer is only ever fetched from Volcon's own releases and checked against the SHA-256 GitHub lists before it runs.

@@ -185,6 +185,84 @@ function changePresetConfig(updater: (current: PresetConfig) => PresetConfig) {
     }
 }
 
+/** The presets as saved, read fresh: a reset mustn't work from a stale copy. */
+async function loadSavedPresetConfig() {
+    const saved = hasTauriRuntime() ? await invoke<PresetConfig>("load_preset_config") : presetConfigCache
+    presetConfigCache = saved
+    return saved
+}
+
+/** Hands the apps on the preset in use back to Windows. */
+function releaseActiveApps(config: PresetConfig) {
+    const active = config.presets.find((preset) => preset.id === config.activePresetId)
+    const apps = Array.from(new Set(active?.assignments.map((assignment) => assignment.app) ?? []))
+
+    if (apps.length > 0 && hasTauriRuntime()) {
+        void releaseApps(apps).catch(() => {})
+    }
+}
+
+/** How many apps on how many controls, across how many presets. */
+export type AssignmentCount = { apps: number; controls: number; presets: number }
+
+export function countAssignments(config: PresetConfig): AssignmentCount {
+    const withApps = config.presets.filter((preset) => preset.assignments.length > 0)
+
+    return {
+        apps: withApps.reduce((total, preset) => total + preset.assignments.length, 0),
+        controls: withApps.reduce(
+            (total, preset) => total + new Set(preset.assignments.map((assignment) => assignment.control)).size,
+            0,
+        ),
+        presets: withApps.length,
+    }
+}
+
+/** What a reset would take away, read from the presets as saved. */
+export async function savedAssignmentCount() {
+    return countAssignments(await loadSavedPresetConfig())
+}
+
+/**
+ * Takes every app off every control, on every preset. The presets, their
+ * controllers, and the controls learned on them stay. Answers what was there,
+ * to put back with `restorePresetConfig`.
+ */
+export async function resetAllAssignments() {
+    const previous = await loadSavedPresetConfig()
+
+    changePresetConfig((current) => ({
+        ...current,
+        presets: current.presets.map((preset) => ({
+            ...preset,
+            assignments: [],
+            mappings: preset.mappings.map((mapping) => ({ ...mapping, controlledApps: [] })),
+        })),
+    }))
+    releaseActiveApps(previous)
+
+    return { previous, count: countAssignments(previous) }
+}
+
+/** Every preset gone, as on a fresh install. */
+export async function resetAllPresets() {
+    const previous = await loadSavedPresetConfig()
+
+    changePresetConfig(() => initialPresetConfig)
+    releaseActiveApps(previous)
+
+    // No preset in use any more: nothing for a control to move, and no
+    // controller to listen to.
+    if (hasTauriRuntime()) {
+        void activatePreset("", "", []).catch(() => {})
+    }
+}
+
+/** Puts the presets back as they were before a reset. */
+export function restorePresetConfig(config: PresetConfig) {
+    changePresetConfig(() => config)
+}
+
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)))
 
 function applyProgressSnapshotToConfig(config: PresetConfig, progressByControl: Record<number, number>) {
@@ -1571,12 +1649,18 @@ export default function MappingSection() {
         })
     }
 
+    // Only a control with a card on this preset can fight over an app. An
+    // assignment without one is a leftover, and goes as the presets load.
+    const cardedControls = new Set(activePreset?.mappings.map((mapping) => mapping.control) ?? [])
+    const cardedAssignments = activePresetAssignments.filter((assignment) =>
+        cardedControls.has(assignment.control),
+    )
     const conflictsForApp = (app: ControlledApp) =>
         selectedMapping
             ? Array.from(
                 new Set(
                     app.sourceApps.flatMap((sourceApp) =>
-                        getPresetAssignmentConflicts(activePresetAssignments, sourceApp, selectedMapping.control),
+                        getPresetAssignmentConflicts(cardedAssignments, sourceApp, selectedMapping.control),
                     ),
                 ),
             ).sort((left, right) => left - right)

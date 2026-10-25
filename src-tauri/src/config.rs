@@ -66,6 +66,30 @@ impl Default for PresetConfig {
     }
 }
 
+impl PresetConfig {
+    /// Drops assignments whose control has no card on their preset, answering
+    /// how many went. Nothing shows them, so nothing can change them, yet the
+    /// backend would still apply them - a knob quietly moving an app, and a
+    /// mapping on another preset warned about as if it were on this one. Older
+    /// versions could leave them behind.
+    fn drop_orphaned_assignments(&mut self) -> usize {
+        let mut dropped = 0;
+
+        for preset in &mut self.presets {
+            let controls: std::collections::HashSet<u32> =
+                preset.mappings.iter().map(|mapping| mapping.control).collect();
+            let before = preset.assignments.len();
+
+            preset
+                .assignments
+                .retain(|assignment| controls.contains(&u32::from(assignment.control)));
+            dropped += before - preset.assignments.len();
+        }
+
+        dropped
+    }
+}
+
 fn config_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<PathBuf, String> {
     let config_dir = app
         .path()
@@ -87,8 +111,15 @@ pub fn load_or_create<R: tauri::Runtime>(
     }
 
     let contents = fs::read_to_string(&path).map_err(|error| error.to_string())?;
-    let parsed =
+    let mut parsed =
         serde_json::from_str::<PresetConfig>(&contents).map_err(|error| error.to_string())?;
+
+    let dropped = parsed.drop_orphaned_assignments();
+
+    if dropped > 0 {
+        log::info!("dropped {dropped} assignment(s) whose control had no mapping");
+        save(app, &parsed)?;
+    }
 
     Ok(parsed)
 }
@@ -143,4 +174,55 @@ pub fn set_open_to_tray<R: tauri::Runtime>(
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assignment(control: u8, app: &str) -> Assignment {
+        serde_json::from_value(serde_json::json!({ "control": control, "app": app, "label": null }))
+            .expect("an assignment")
+    }
+
+    fn mapping(control: u32) -> MappingCardData {
+        MappingCardData {
+            id: format!("mapping-{control}"),
+            control,
+            name: format!("Control {control}"),
+            value: 0,
+            controlled_apps: vec![],
+        }
+    }
+
+    #[test]
+    fn assignments_without_a_card_on_their_preset_are_dropped() {
+        let mut config = PresetConfig {
+            presets: vec![PresetEntry {
+                id: "main".into(),
+                name: "Main".into(),
+                controller_id: String::new(),
+                device_aliases: Default::default(),
+                group_aliases: Default::default(),
+                // Control 74's card is on another preset; 130 is a parked card.
+                assignments: vec![
+                    assignment(76, "RobloxPlayerBeta.exe"),
+                    assignment(74, "RobloxPlayerBeta.exe"),
+                    assignment(130, "Spotify.exe"),
+                ],
+                mappings: vec![mapping(76), mapping(130)],
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(config.drop_orphaned_assignments(), 1);
+
+        let controls: Vec<u8> = config.presets[0]
+            .assignments
+            .iter()
+            .map(|assignment| assignment.control)
+            .collect();
+        assert_eq!(controls, vec![76, 130]);
+        assert_eq!(config.drop_orphaned_assignments(), 0);
+    }
 }

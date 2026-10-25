@@ -495,7 +495,7 @@ export function CreditsDialog() {
           ))}
           <p className="px-0.5 text-[11px] leading-relaxed text-muted-foreground">
             And smaller pieces besides: class-variance-authority, clsx, tailwind-merge and tw-animate-css,
-            Tauri&apos;s autostart and log plugins, tauri-plugin-prevent-default, and base64.
+            Tauri&apos;s log and single-instance plugins, tauri-plugin-prevent-default, base64, semver and sha2.
           </p>
         </DialogList>
       </DialogContent>

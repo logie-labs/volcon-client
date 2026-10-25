@@ -97,7 +97,7 @@ export const settingsPages: SettingsPageInfo[] = [
     id: "backup",
     group: "advanced",
     title: "Backup & reset",
-    description: "Save your settings to a file, bring them back, or start over from the defaults.",
+    description: "Save your settings to a file and bring them back, or start over.",
   },
   {
     id: "updates",
@@ -534,10 +534,28 @@ export const settingEntries: SettingEntry[] = [
     id: "backup.resetAll",
     page: "backup",
     group: "Reset",
-    label: "Reset all settings",
+    label: "Reset settings",
     description:
       "Put every setting back to how Volcon ships. Your mappings and presets aren't affected.",
     keywords: ["defaults", "factory", "restore", "clear"],
+  },
+  {
+    id: "backup.resetAssignments",
+    page: "backup",
+    group: "Reset",
+    label: "Reset assignments",
+    description:
+      "Take every app off every control, on every preset. Your presets, and the controls you've learned, stay.",
+    keywords: ["apps", "mappings", "controls", "clear", "remove", "unassign", "presets"],
+  },
+  {
+    id: "backup.resetEverything",
+    page: "backup",
+    group: "Reset",
+    label: "Reset everything",
+    description:
+      "Settings, presets, mappings, notifications and what Volcon remembers about your apps, all as on a fresh install.",
+    keywords: ["factory", "fresh", "wipe", "clear", "start over", "presets", "all"],
   },
 
   // Updates

@@ -44,6 +44,7 @@ Each control sets the volume of the apps you give it, the moment you move it.
 - A command menu, on <kbd>Ctrl</kbd> + <kbd>Alt</kbd>, gets you anywhere and does most things from the keyboard.
 - Light and dark themes, or whichever Windows is using.
 - Back up your settings to a file and bring them back on another PC.
+- Updates itself: download a new version in the app and it installs quietly, now or the next time Volcon starts.
 
 <p align="center">
   <img src="docs/images/mapping-detail.png" alt="A mapping's own screen: one knob sets Chrome and Edge, with Edge trimmed to 70%, and live levels for both" width="880" />
@@ -55,7 +56,7 @@ Each control sets the volume of the apps you give it, the moment you move it.
 
 Download `Volcon_x.y.z_x64-setup.exe` from the [latest release](https://github.com/logie-labs/volcon-client/releases/latest) and run it. It installs for your Windows account only, so it doesn't need administrator rights.
 
-When there's a new version, Volcon says so in its title bar. Run the new installer over the old one, and your presets and settings carry over.
+When there's a new version, Volcon says so in its title bar. Download it there or on **Settings → Updates**, and it installs itself: straight away, as Volcon closes for a moment and opens again, or the next time Volcon starts. Your presets and settings carry over.
 
 > [!NOTE]
 > The installer isn't code-signed yet, so Windows SmartScreen may say *Windows protected your PC*. Choose **More info**, then **Run anyway**. Every installer is built from this repository's code by [GitHub Actions](https://github.com/logie-labs/volcon-client/actions/workflows/release.yml), where you can see exactly how.
@@ -106,7 +107,7 @@ Yes. Volcon moves the same per-app volume you see in Windows' volume mixer, so t
 
 Volcon has no account, no analytics and no telemetry. Your presets and settings stay on your PC.
 
-The only thing it checks online is GitHub's list of releases, to see whether there's a newer version. That happens when Volcon starts, at most once a day, and you can turn it off in **Settings → Updates**.
+It only goes online for updates. It checks GitHub's list of releases for a newer version when Volcon starts, at most once a day, which you can turn off in **Settings → Updates**. And it downloads a new version's installer from GitHub when you ask it to.
 
 ## Building from source
 

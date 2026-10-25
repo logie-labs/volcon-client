@@ -312,6 +312,50 @@ export function openExternal(url: string) {
   return invokeNative<void>("open_external", { url });
 }
 
+/** Whether Windows starts Volcon when you sign in. */
+export function getLaunchAtSignIn() {
+  return invokeNative<boolean>("launch_at_sign_in");
+}
+
+/** Has Windows start Volcon at sign-in, or stop; answers with what Windows is set to now. */
+export function setLaunchAtSignIn(enabled: boolean) {
+  return invokeNative<boolean>("set_launch_at_sign_in", { enabled });
+}
+
+/** Where a downloaded update stands, as the backend reports it. */
+export type UpdateDownloadState =
+  | { phase: "idle" }
+  | { phase: "downloading"; version: string; received: number; total: number }
+  | { phase: "ready"; version: string; failedAtLaunch: boolean }
+  | { phase: "failed"; version: string; reason: string };
+
+export function getUpdateDownloadState() {
+  return invokeNative<UpdateDownloadState>("update_state");
+}
+
+/** Starts downloading an update's installer, in the background. */
+export function startUpdateDownload(request: {
+  version: string;
+  url: string;
+  size: number;
+  sha256: string | null;
+}) {
+  return invokeNative<void>("update_download", { request });
+}
+
+export function cancelUpdateDownload() {
+  return invokeNative<void>("update_cancel");
+}
+
+export function discardUpdateDownload() {
+  return invokeNative<void>("update_discard");
+}
+
+/** Installs the downloaded update: Volcon closes, and opens again updated. */
+export function installUpdateNow() {
+  return invokeNative<void>("update_install_now");
+}
+
 export function ping() {
   return callBridge<{ ok: boolean; message: string }>("ping");
 }

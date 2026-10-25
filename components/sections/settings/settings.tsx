@@ -2,7 +2,6 @@
 
 import { AnimatePresence, motion } from "framer-motion"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { isEnabled } from "@tauri-apps/plugin-autostart"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { usePageInHistory } from "@/lib/navigation-history"
@@ -148,43 +147,6 @@ export default function SettingsSection() {
       // Blocked storage: the page just won't be remembered.
     }
   }, [activeId])
-
-  // Windows is the authority on whether Volcon launches with it - the setting
-  // can be changed from Task Manager too - so the switch follows what Windows
-  // says.
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "production") {
-      return
-    }
-
-    let cancelled = false
-
-    const syncAutostartState = async () => {
-      try {
-        const enabled = await isEnabled()
-
-        if (!cancelled && enabled !== config.startup.launchOnStartup) {
-          updateConfig((current) => ({
-            ...current,
-            startup: { ...current.startup, launchOnStartup: enabled },
-          }))
-        }
-      } catch {
-        // Keep the local setting if the plugin is unavailable.
-      }
-    }
-
-    // Run immediately, then poll the OS every 5s to keep the UI in sync
-    void syncAutostartState()
-    const intervalId = setInterval(() => {
-      void syncAutostartState()
-    }, 5000)
-
-    return () => {
-      cancelled = true
-      clearInterval(intervalId)
-    }
-  }, [config.startup.launchOnStartup, updateConfig])
 
   useEffect(() => {
     if (!highlight) {

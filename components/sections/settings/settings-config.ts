@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react"
 
+import { getLaunchAtSignIn, setLaunchAtSignIn } from "@/lib/bridge-client"
+
 export type SettingsConfig = {
   schemaVersion: 1
   appearance: {
@@ -692,49 +694,120 @@ export async function reconcileBackendSettings() {
   }
 }
 
+/** Set before Reset everything reloads Volcon, so the fresh start can say so. */
+export const justResetKey = "volcon.just-reset"
+
+/** How often Windows is asked whether it still starts Volcon. */
+const LAUNCH_READ_INTERVAL_MS = 10_000
+
+/** Says a change to Launch with Windows didn't take, and why. */
+function complainAboutLaunch(wanted: boolean, reason: string) {
+  // Imported here because notifications read the settings too.
+  void import("@/lib/notifications").then(({ toast }) => {
+    toast.error("Couldn't change Launch with Windows", {
+      source: "settings",
+      detail: reason,
+      event: {
+        type: "action-failed",
+        attempted: wanted
+          ? "Have Windows start Volcon when you sign in"
+          : "Stop Windows starting Volcon when you sign in",
+        reason,
+        hint: "The switch in Settings → Startup shows what Windows is really set to.",
+      },
+    })
+  })
+}
+
 /**
- * Applies the startup settings that live outside the app - whether Windows
- * launches it, and whether it opens hidden - whenever they change, however they
- * changed: their switches, a page reset, an import, the command palette.
+ * Keeps the startup settings that live outside the app in step with it.
+ *
+ * Whether Windows starts Volcon is Windows' to say - Task Manager can switch it
+ * off too - so it's read on start, when the window comes back, and every few
+ * seconds, and the setting simply follows. Only a change made here (the switch,
+ * a reset, an import, the command menu) is sent to Windows, one at a time, and
+ * the switch then shows what Windows did with it. Reading never sends anything
+ * back, so the setting and Windows can't keep flipping each other.
+ *
+ * Whether it opens hidden is the backend's to read at launch, and is sent to it
+ * whenever it changes.
  */
 function startStartupSync() {
+  // A development build would register its own, temporary executable.
+  const managesWindows = process.env.NODE_ENV === "production"
   let applied: SettingsConfig["startup"] | null = null
+  /** What Windows was last read as, or set to; null until it's been asked. */
+  let windowsSays: boolean | null = null
+  let sending = false
+
+  /** Takes Windows' answer as the setting, without sending it back. */
+  const adopt = (enabled: boolean) => {
+    windowsSays = enabled
+    const current = getSettingsSnapshot()
+
+    if (current.startup.launchOnStartup !== enabled) {
+      saveSettingsConfig({ ...current, startup: { ...current.startup, launchOnStartup: enabled } })
+    }
+  }
+
+  const read = async () => {
+    if (!managesWindows || sending) {
+      return
+    }
+
+    try {
+      const enabled = await getLaunchAtSignIn()
+
+      // A change may have set off while Windows was being asked.
+      if (!sending) {
+        adopt(enabled)
+      }
+    } catch {
+      // Without an answer, the setting stays as it is.
+    }
+  }
+
+  const send = async (wanted: boolean) => {
+    sending = true
+    let enabled: boolean
+
+    try {
+      enabled = await setLaunchAtSignIn(wanted)
+    } catch (error) {
+      sending = false
+      complainAboutLaunch(wanted, error instanceof Error ? error.message : String(error))
+      // The switch goes back to what Windows is really set to.
+      void read()
+      return
+    }
+
+    sending = false
+    windowsSays = enabled
+    const latest = getSettingsSnapshot().startup.launchOnStartup
+
+    // Changed again while this was on its way: the newest wish is the one
+    // that counts.
+    if (latest !== wanted) {
+      if (latest !== enabled) {
+        void send(latest)
+      }
+
+      return
+    }
+
+    if (enabled !== wanted) {
+      complainAboutLaunch(wanted, "Windows didn't keep the change.")
+      adopt(enabled)
+    }
+  }
 
   const apply = () => {
     const next = getSettingsSnapshot().startup
     const previous = applied
     applied = next
 
-    // Autostart registers this exact executable with Windows, which a dev
-    // build shouldn't do.
-    if (
-      previous &&
-      previous.launchOnStartup !== next.launchOnStartup &&
-      process.env.NODE_ENV === "production"
-    ) {
-      void import("@tauri-apps/plugin-autostart")
-        .then(({ enable, disable }) => (next.launchOnStartup ? enable() : disable()))
-        .catch((error: unknown) => {
-          // The settings screen reads the real state back from Windows within
-          // a few seconds, so the switch corrects itself; this says why.
-          // Imported here because notifications read the settings too.
-          void import("@/lib/notifications").then(({ toast }) => {
-            const reason = error instanceof Error ? error.message : String(error)
-
-            toast.error("Couldn't change Launch with Windows", {
-              source: "settings",
-              detail: reason,
-              event: {
-                type: "action-failed",
-                attempted: next.launchOnStartup
-                  ? "Have Windows start Volcon when you sign in"
-                  : "Stop Windows starting Volcon when you sign in",
-                reason,
-                hint: "The switch in Settings → Startup shows what Windows is really set to.",
-              },
-            })
-          })
-        })
+    if (managesWindows && !sending && windowsSays !== null && next.launchOnStartup !== windowsSays) {
+      void send(next.launchOnStartup)
     }
 
     // The backend reads this one at launch; sent at start too, so the two
@@ -746,8 +819,19 @@ function startStartupSync() {
     }
   }
 
+  const onFocus = () => void read()
+  const timer = window.setInterval(onFocus, LAUNCH_READ_INTERVAL_MS)
+
   apply()
-  return subscribeToSettings(apply)
+  void read()
+  window.addEventListener("focus", onFocus)
+  const unsubscribe = subscribeToSettings(apply)
+
+  return () => {
+    window.clearInterval(timer)
+    window.removeEventListener("focus", onFocus)
+    unsubscribe()
+  }
 }
 
 /**

@@ -7,6 +7,20 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let context = tauri::generate_context!();
+
+    // An update downloaded last time goes in before anything opens; the
+    // installer reopens Volcon when it's done. A development build leaves it
+    // for the installed copy.
+    if !cfg!(debug_assertions)
+        && server::updater::install_pending_at_launch(
+            &context.config().identifier,
+            &context.package_info().version,
+        )
+    {
+        return;
+    }
+
     tauri::Builder::default()
         // First, so a second launch - from the Start menu while Volcon sits in
         // the tray, say - goes no further than showing the copy already
@@ -31,12 +45,15 @@ pub fn run() {
             server::shell::save_settings_backup,
             server::shell::reveal_in_explorer,
             server::shell::open_external,
+            server::launch::launch_at_sign_in,
+            server::launch::set_launch_at_sign_in,
+            server::updater::update_state,
+            server::updater::update_download,
+            server::updater::update_cancel,
+            server::updater::update_discard,
+            server::updater::update_install_now,
             get_app_version,
         ])
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
         .plugin(prevent_default())
         .setup(|app| {
             // First, so everything after it can log. Settings sends its own
@@ -46,6 +63,13 @@ pub fn run() {
             log::info!("Volcon {} starting", env!("CARGO_PKG_VERSION"));
 
             app.manage(bridge::BridgeService::new(app.handle().clone()));
+            app.manage(server::updater::Updater::new(app.handle()));
+
+            // An installed copy keeps Launch with Windows pointed at itself,
+            // wherever an update put it.
+            if !cfg!(debug_assertions) {
+                server::launch::repair(app.handle());
+            }
 
             // tray behaviour
             if let Ok(cfg) = crate::config::load_or_create(&app.handle()) {
@@ -68,7 +92,7 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 

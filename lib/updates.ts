@@ -3,21 +3,43 @@
 import { useSyncExternalStore } from "react"
 
 import { getSettingsSnapshot } from "@/components/sections/settings/settings-config"
+import {
+  cancelUpdateDownload,
+  discardUpdateDownload,
+  getUpdateDownloadState,
+  installUpdateNow,
+  openExternal,
+  startUpdateDownload,
+  type UpdateDownloadState,
+} from "@/lib/bridge-client"
 import { openPlace } from "@/lib/navigation-history"
 import { toast } from "@/lib/notifications"
 import { releasesApiUrl } from "@/lib/project"
+import { hasTauriRuntime } from "@/lib/tauri-runtime"
 import { appVersion } from "@/lib/version"
 
 /**
- * Whether there's a newer version of Volcon, from the releases published on
- * GitHub. Checked when asked on the Updates page, and when Volcon starts if
- * Settings allows - once a day at most, since every check is a request to
- * GitHub and nothing changes that often.
+ * Whether there's a newer version of Volcon, and getting it.
  *
- * The answer is kept between launches, so About and the Updates page can say
- * where things stood without asking again. Installing isn't done here: a newer
- * version is offered as its release page, to download from.
+ * Checked against the releases published on GitHub: when asked on the Updates
+ * page, and when Volcon starts if Settings allows - once a day at most, since
+ * every check is a request to GitHub and nothing changes that often. A newer
+ * version is downloaded in the background when asked, checked, then installed
+ * silently: straight away if asked, or else the next time Volcon starts. One
+ * can be skipped, and then isn't offered again.
+ *
+ * The last answer is kept between launches, so About and the Updates page can
+ * say where things stood without asking again - and forgotten once another
+ * version is running, since it was about the old one.
  */
+
+/** A release's installer: where it's downloaded from, its size and checksum. */
+export type Installer = {
+  url: string
+  size: number
+  /** As GitHub lists it, "sha256:…"; older releases may not have one. */
+  sha256: string | null
+}
 
 export type Release = {
   /** Its version, without the tag's "v": "0.3.0". */
@@ -25,10 +47,12 @@ export type Release = {
   name: string
   /** What's new, as written on GitHub, in Markdown. */
   notes: string
-  /** Its page on GitHub, where it's downloaded from. */
+  /** Its page on GitHub. */
   url: string
   publishedAt: string | null
   prerelease: boolean
+  /** The installer to download, if the release has one. */
+  installer: Installer | null
 }
 
 export type UpdateResult =
@@ -42,15 +66,23 @@ type Snapshot = {
   checking: boolean
   result: UpdateResult | null
   checkedAt: number | null
+  /** The update being downloaded, or downloaded, as the backend has it. */
+  download: UpdateDownloadState
+  /** A version chosen not to be offered again. */
+  skipped: string | null
 }
 
 const storageKey = "volcon.updates"
 const DAY_MS = 24 * 60 * 60 * 1000
+const idle: UpdateDownloadState = { phase: "idle" }
 
-let snapshot: Snapshot = { checking: false, result: null, checkedAt: null }
+let snapshot: Snapshot = { checking: false, result: null, checkedAt: null, download: idle, skipped: null }
 /** The newest version already announced, so each is only announced once. */
 let announced: string | null = null
+/** The version that ran last time, to say when it's changed. */
+let lastVersion: string | null = null
 let restored = false
+let listening = false
 let running: Promise<UpdateResult> | null = null
 const listeners = new Set<() => void>()
 
@@ -66,14 +98,18 @@ function restore() {
       result?: UpdateResult
       checkedAt?: number
       announced?: string
+      skipped?: string
+      lastVersion?: string
     } | null
 
     snapshot = {
-      checking: false,
+      ...snapshot,
       result: stored?.result ?? null,
       checkedAt: typeof stored?.checkedAt === "number" ? stored.checkedAt : null,
+      skipped: typeof stored?.skipped === "string" ? stored.skipped : null,
     }
     announced = typeof stored?.announced === "string" ? stored.announced : null
+    lastVersion = typeof stored?.lastVersion === "string" ? stored.lastVersion : null
   } catch {
     // Unreadable: it just hasn't been checked yet, as far as anyone can tell.
   }
@@ -83,7 +119,13 @@ function save() {
   try {
     window.localStorage.setItem(
       storageKey,
-      JSON.stringify({ result: snapshot.result, checkedAt: snapshot.checkedAt, announced })
+      JSON.stringify({
+        result: snapshot.result,
+        checkedAt: snapshot.checkedAt,
+        announced,
+        skipped: snapshot.skipped,
+        lastVersion,
+      })
     )
   } catch {
     // Blocked storage: the answer lasts until Volcon closes.
@@ -177,6 +219,14 @@ export function compareVersions(a: string, b: string) {
   return comparePrerelease(left.pre, right.pre)
 }
 
+type GitHubAsset = {
+  name?: string
+  browser_download_url?: string
+  size?: number
+  digest?: string | null
+  state?: string
+}
+
 type GitHubRelease = {
   tag_name?: string
   name?: string | null
@@ -185,6 +235,22 @@ type GitHubRelease = {
   published_at?: string | null
   draft?: boolean
   prerelease?: boolean
+  assets?: GitHubAsset[]
+}
+
+/** The release's installer, among whatever else is attached to it. */
+function installerOf(release: GitHubRelease): Installer | null {
+  const asset = (release.assets ?? []).find(
+    (asset) =>
+      asset.name?.endsWith("-setup.exe") &&
+      asset.browser_download_url &&
+      typeof asset.size === "number" &&
+      (asset.state === undefined || asset.state === "uploaded")
+  )
+
+  return asset
+    ? { url: asset.browser_download_url!, size: asset.size!, sha256: asset.digest ?? null }
+    : null
 }
 
 function toRelease(release: GitHubRelease): Release | null {
@@ -203,6 +269,7 @@ function toRelease(release: GitHubRelease): Release | null {
     url: release.html_url,
     publishedAt: release.published_at ?? null,
     prerelease: Boolean(release.prerelease),
+    installer: installerOf(release),
   }
 }
 
@@ -298,7 +365,7 @@ export function checkForUpdates({
         announced = result.latest.version
       }
 
-      update({ checking: false, result, checkedAt: Date.now() })
+      update({ ...snapshot, checking: false, result, checkedAt: Date.now() })
       save()
       return result
     })
@@ -309,36 +376,192 @@ export function checkForUpdates({
   return running
 }
 
-/** Says a newer version is out, once for each version. */
+/** Says a newer version is out, once for each version, unless it's been skipped. */
 function announce(result: Extract<UpdateResult, { status: "available" }>) {
-  if (announced === result.latest.version) {
+  const { latest, installed } = result
+
+  if (announced === latest.version || snapshot.skipped === latest.version) {
     return
   }
 
-  announced = result.latest.version
+  announced = latest.version
   save()
 
-  toast.info(`Volcon ${result.latest.version} is available`, {
+  toast.info(`Volcon ${latest.version} is available`, {
     source: "app",
-    description: `You have ${result.installed}. See what's new in Settings, under Updates.`,
-    key: `update-available:${result.latest.version}`,
+    description: latest.installer
+      ? `You have ${installed}. Download it here and it installs itself.`
+      : `You have ${installed}. See what's new in Settings, under Updates.`,
+    key: `update-available:${latest.version}`,
     event: {
       type: "update-available",
-      installed: result.installed,
-      latest: result.latest.version,
-      url: result.latest.url,
-      prerelease: result.latest.prerelease,
+      installed,
+      latest: latest.version,
+      url: latest.url,
+      prerelease: latest.prerelease,
     },
-    action: { label: "See what's new", onClick: () => openPlace("settings", "updates") },
+    action: latest.installer
+      ? {
+          label: "Download",
+          // Over to the Updates page, where it can be seen coming in.
+          onClick: () => {
+            void downloadUpdate(latest)
+            openPlace("settings", "updates")
+          },
+        }
+      : { label: "See what's new", onClick: () => openPlace("settings", "updates") },
   })
 }
 
+/** The release a download is of, if it's the one the last check found. */
+function releaseFor(version: string) {
+  const result = snapshot.result
+  return result?.status === "available" && result.latest.version === version ? result.latest : null
+}
+
+/** Said when a download finishes or fails, for when the Updates page isn't open. */
+function adoptDownload(next: UpdateDownloadState) {
+  const previous = snapshot.download
+  update({ ...snapshot, download: next })
+
+  if (previous.phase !== "downloading") {
+    return
+  }
+
+  if (next.phase === "ready") {
+    toast.success(`Volcon ${next.version} is ready to install`, {
+      source: "app",
+      description: "It installs the next time Volcon starts, or now, in a moment.",
+      key: `update-ready:${next.version}`,
+      action: { label: "Update now", onClick: () => void installNow() },
+    })
+  } else if (next.phase === "failed") {
+    const release = releaseFor(next.version)
+
+    toast.error(`Couldn't download Volcon ${next.version}`, {
+      source: "app",
+      description: "Nothing was changed. Try again, or download it from GitHub.",
+      detail: next.reason,
+      key: `update-failed:${next.version}`,
+      action: release ? { label: "Try again", onClick: () => void downloadUpdate(release) } : undefined,
+    })
+  }
+}
+
+/** Follows the backend's download from here on, starting with where it stands. */
+function listenForDownloads() {
+  if (listening || !hasTauriRuntime()) {
+    return
+  }
+
+  listening = true
+
+  void getUpdateDownloadState()
+    .then((state) => update({ ...snapshot, download: state }))
+    .catch(() => {})
+  void import("@tauri-apps/api/event")
+    .then(({ listen }) => listen<UpdateDownloadState>("update:state", (event) => adoptDownload(event.payload)))
+    .catch(() => {})
+}
+
 /**
- * Checks when Volcon starts, if Settings says to and the last check was more
- * than a day ago. Quiet unless there's something new.
+ * Downloads a release's installer in the background, to install silently. A
+ * release without one is opened on GitHub instead.
  */
-export function startUpdateChecks() {
+export async function downloadUpdate(release: Release) {
   restore()
+
+  if (!release.installer) {
+    void openExternal(release.url).catch(() => {})
+    return
+  }
+
+  if (snapshot.skipped === release.version) {
+    update({ ...snapshot, skipped: null })
+    save()
+  }
+
+  try {
+    await startUpdateDownload({
+      version: release.version,
+      url: release.installer.url,
+      size: release.installer.size,
+      sha256: release.installer.sha256,
+    })
+  } catch (error) {
+    toast.error(`Couldn't download Volcon ${release.version}`, {
+      source: "app",
+      detail: error instanceof Error ? error.message : String(error),
+      key: `update-failed:${release.version}`,
+    })
+  }
+}
+
+export function cancelDownload() {
+  void cancelUpdateDownload().catch(() => {})
+}
+
+/** Installs the downloaded update now: Volcon closes, and opens again updated. */
+export async function installNow() {
+  try {
+    await installUpdateNow()
+  } catch (error) {
+    toast.error("Couldn't install the update", {
+      source: "app",
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/** Stops offering a version, and throws away its download if there is one. */
+export function skipVersion(version: string) {
+  restore()
+  update({ ...snapshot, skipped: version })
+  save()
+
+  const download = snapshot.download
+
+  if (download.phase !== "idle" && download.version === version) {
+    void discardUpdateDownload().catch(() => {})
+  }
+}
+
+export function unskipVersion() {
+  restore()
+  update({ ...snapshot, skipped: null })
+  save()
+}
+
+/**
+ * When Volcon starts: says so if it's just been updated, forgets an answer that
+ * was about the version that ran before, then checks if Settings says to and
+ * the last check was more than a day ago. Quiet unless there's something new.
+ */
+export async function startUpdateChecks() {
+  restore()
+  listenForDownloads()
+
+  const installed = await appVersion().catch(() => null)
+
+  if (installed) {
+    const answeredFor = snapshot.result?.installed
+
+    if (answeredFor && answeredFor !== installed) {
+      update({ ...snapshot, result: null, checkedAt: null })
+    }
+
+    if (lastVersion && compareVersions(installed, lastVersion) > 0) {
+      toast.success(`Volcon updated to ${installed}`, {
+        source: "app",
+        description: `From ${lastVersion}. See what's new in Settings, under Updates.`,
+        key: `updated:${installed}`,
+        action: { label: "What's new", onClick: () => openPlace("settings", "updates") },
+      })
+    }
+
+    lastVersion = installed
+    save()
+  }
 
   const { autoCheck, prereleases } = getSettingsSnapshot().updates
 
@@ -369,9 +592,12 @@ function subscribe(listener: () => void) {
   }
 }
 
-const empty: Snapshot = { checking: false, result: null, checkedAt: null }
+const empty: Snapshot = { checking: false, result: null, checkedAt: null, download: idle, skipped: null }
 
-/** Where the check stands: whether one is running, and the last answer and when. */
+/**
+ * Where updates stand: whether a check is running and its last answer, the
+ * download, and any version skipped.
+ */
 export function useUpdates(): Snapshot {
   return useSyncExternalStore(
     subscribe,

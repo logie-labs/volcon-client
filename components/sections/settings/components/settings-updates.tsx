@@ -3,19 +3,33 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react"
 import {
   RiArrowUpCircleLine,
+  RiCheckboxCircleLine,
   RiCheckLine,
+  RiCloseLine,
+  RiDownload2Line,
   RiDownloadCloud2Line,
   RiErrorWarningLine,
   RiExternalLinkLine,
   RiLoader4Line,
   RiRefreshLine,
+  RiRestartLine,
 } from "@remixicon/react"
 
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { openExternal } from "@/lib/bridge-client"
+import { openExternal, type UpdateDownloadState } from "@/lib/bridge-client"
 import { describeAge, toast } from "@/lib/notifications"
-import { checkForUpdates, compareVersions, useUpdates, type UpdateResult } from "@/lib/updates"
+import {
+  cancelDownload,
+  checkForUpdates,
+  compareVersions,
+  downloadUpdate,
+  installNow,
+  skipVersion,
+  useUpdates,
+  type UpdateResult,
+} from "@/lib/updates"
 import { cn } from "@/lib/utils"
 
 import { useSettings } from "../settings-context"
@@ -71,16 +85,36 @@ function openRelease(url: string) {
   })
 }
 
-/** Where things stand, in a sentence or two, with the way to the download when there's one. */
+/** "3.1 MB", or "640 KB" under a megabyte. */
+function describeBytes(bytes: number) {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/** The backend's reasons start lowercase, to follow "couldn't …"; here one stands alone. */
+function asSentence(reason: string) {
+  const text = reason.trim()
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}${/[.!?]$/.test(text) ? "" : "."}`
+}
+
+/**
+ * Where things stand, in a sentence or two, with what can be done about it:
+ * download a newer version, watch it come in, install it, or skip it.
+ */
 function UpdateStatus({
   checking,
   result,
   checkedAt,
+  download,
+  skipped,
   now,
 }: {
   checking: boolean
   result: UpdateResult | null
   checkedAt: number | null
+  download: UpdateDownloadState
+  skipped: string | null
   now: number
 }) {
   let icon: ReactNode
@@ -88,8 +122,67 @@ function UpdateStatus({
   let headline: string
   let detail: string
   let action: ReactNode = null
+  let progress: ReactNode = null
+  const latest = result?.status === "available" ? result.latest : null
 
-  if (checking) {
+  if (download.phase === "downloading") {
+    const percent =
+      download.total > 0 ? Math.min(100, Math.floor((download.received / download.total) * 100)) : 0
+
+    icon = <RiDownloadCloud2Line className="size-5" />
+    tone = "new"
+    headline = `Downloading Volcon ${download.version}…`
+    detail = `${describeBytes(download.received)} of ${describeBytes(download.total)}. It's checked once it's here, then installs itself.`
+    progress = (
+      <div className="mt-3 flex items-center gap-3">
+        <Progress value={percent} aria-label={`Downloading Volcon ${download.version}`} className="flex-1" />
+        <span className="w-9 text-right font-mono text-xs text-muted-foreground tabular-nums">{percent}%</span>
+      </div>
+    )
+    action = (
+      <Button type="button" variant="outline" size="sm" onClick={cancelDownload}>
+        <RiCloseLine />
+        Cancel
+      </Button>
+    )
+  } else if (download.phase === "ready") {
+    icon = <RiCheckboxCircleLine className="size-5" />
+    tone = "new"
+    headline = `Volcon ${download.version} is ready to install`
+    detail = download.failedAtLaunch
+      ? "It didn't go in when Volcon last started. Try it now: Volcon closes for a moment and opens again, updated."
+      : "It installs the next time Volcon starts. Or update now: Volcon closes for a moment and opens again, updated."
+    action = (
+      <>
+        <Button type="button" size="sm" onClick={() => void installNow()}>
+          <RiRestartLine />
+          Update now
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={() => skipVersion(download.version)}>
+          Skip this version
+        </Button>
+      </>
+    )
+  } else if (download.phase === "failed") {
+    const release = latest?.version === download.version ? latest : null
+
+    icon = <RiErrorWarningLine className="size-5" />
+    tone = "problem"
+    headline = `Couldn't download Volcon ${download.version}`
+    detail = `${asSentence(download.reason)} Nothing was changed.`
+    action = release ? (
+      <>
+        <Button type="button" size="sm" onClick={() => void downloadUpdate(release)}>
+          <RiRefreshLine />
+          Try again
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={() => openRelease(release.url)}>
+          <RiExternalLinkLine />
+          Download from GitHub
+        </Button>
+      </>
+    ) : null
+  } else if (checking) {
     icon = <RiLoader4Line className="size-5 animate-spin" />
     headline = "Checking for updates…"
     detail = "Asking GitHub for the newest release."
@@ -98,16 +191,41 @@ function UpdateStatus({
     headline = "Not checked yet"
     detail = "Check to see whether there's a newer version of Volcon."
   } else if (result.status === "available") {
+    const release = result.latest
+
     icon = <RiArrowUpCircleLine className="size-5" />
-    tone = "new"
-    headline = `Volcon ${result.latest.version} is available`
-    detail = `You have ${result.installed}.${result.latest.publishedAt ? ` It was released ${describeReleased(result.latest.publishedAt, now)}.` : ""}${result.latest.prerelease ? " It's a pre-release, ahead of the release for everyone." : ""}`
-    action = (
-      <Button type="button" size="sm" onClick={() => openRelease(result.latest.url)}>
-        <RiExternalLinkLine />
-        Download from GitHub
-      </Button>
-    )
+    headline = `Volcon ${release.version} is available`
+
+    if (skipped === release.version) {
+      detail = `You skipped this version, so it isn't offered when Volcon starts. You have ${result.installed}.`
+      action = (
+        <Button type="button" variant="outline" size="sm" onClick={() => void downloadUpdate(release)}>
+          <RiDownload2Line />
+          Download anyway
+        </Button>
+      )
+    } else {
+      tone = "new"
+      detail = `You have ${result.installed}.${release.publishedAt ? ` It was released ${describeReleased(release.publishedAt, now)}.` : ""}${release.prerelease ? " It's a pre-release, ahead of the release for everyone." : ""}`
+      action = (
+        <>
+          {release.installer ? (
+            <Button type="button" size="sm" onClick={() => void downloadUpdate(release)}>
+              <RiDownload2Line />
+              Download and install
+            </Button>
+          ) : (
+            <Button type="button" size="sm" onClick={() => openRelease(release.url)}>
+              <RiExternalLinkLine />
+              Download from GitHub
+            </Button>
+          )}
+          <Button type="button" variant="ghost" size="sm" onClick={() => skipVersion(release.version)}>
+            Skip this version
+          </Button>
+        </>
+      )
+    }
   } else if (result.status === "current") {
     icon = <RiCheckLine className="size-5" />
     tone = "good"
@@ -149,12 +267,13 @@ function UpdateStatus({
       <div className="min-w-0 flex-1">
         <p className="font-medium">{headline}</p>
         <p className="mt-0.5 text-xs text-pretty text-muted-foreground">{detail}</p>
-        {checkedAt !== null && !checking ? (
+        {progress}
+        {checkedAt !== null && !checking && download.phase === "idle" ? (
           <p className="mt-2 font-mono text-[10px] tracking-widest text-muted-foreground/80 uppercase">
             Checked {describeAge(checkedAt, now)}
           </p>
         ) : null}
-        {action ? <div className="mt-3">{action}</div> : null}
+        {action ? <div className="mt-3 flex flex-wrap items-center gap-2">{action}</div> : null}
       </div>
     </div>
   )
@@ -246,7 +365,7 @@ function ReleaseNotes({ notes }: { notes: string }) {
 
 export function UpdatesSection() {
   const { config } = useSettings()
-  const { checking, result, checkedAt } = useUpdates()
+  const { checking, result, checkedAt, download, skipped } = useUpdates()
   const now = useNow()
   const latest = result && (result.status === "available" || result.status === "current") ? result.latest : null
 
@@ -254,7 +373,14 @@ export function UpdatesSection() {
 
   return (
     <SettingsPage id="updates">
-      <UpdateStatus checking={checking} result={result} checkedAt={checkedAt} now={now} />
+      <UpdateStatus
+        checking={checking}
+        result={result}
+        checkedAt={checkedAt}
+        download={download}
+        skipped={skipped}
+        now={now}
+      />
 
       <SettingsGroup title="Version">
         <SettingAction id="updates.check">

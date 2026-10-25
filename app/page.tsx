@@ -10,9 +10,10 @@ import { WindowToolbar } from "@/components/window-toolbar";
 import { CommandPalette } from "@/components/command-palette/command-palette";
 import { useAppCommands } from "@/components/command-palette/app-commands";
 import { useRegisterCommands } from "@/components/command-palette/command-palette-context";
-import { startSettingsSync, useSettingsConfig } from "@/components/sections/settings/settings-config";
+import { justResetKey, startSettingsSync, useSettingsConfig } from "@/components/sections/settings/settings-config";
 import { SettingsUndoDialog } from "@/components/sections/settings/settings-undo";
 import { goBack, goForward } from "@/lib/navigation-history";
+import { toast } from "@/lib/notifications";
 import { startUpdateChecks } from "@/lib/updates";
 import { useTheme } from "next-themes";
 
@@ -115,7 +116,25 @@ export default function Page() {
   useEffect(() => startSettingsSync(), []);
 
   // A look for a newer version, if Settings allows and it's been a day.
-  useEffect(() => startUpdateChecks(), []);
+  useEffect(() => {
+    void startUpdateChecks();
+  }, []);
+
+  // Reset everything reloads Volcon to start clean; this is the fresh start
+  // saying it worked.
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(justResetKey)) {
+        window.sessionStorage.removeItem(justResetKey);
+        toast.success("Volcon is reset", {
+          source: "settings",
+          description: "Everything is as it was when you installed it.",
+        });
+      }
+    } catch {
+      // Blocked storage: the reset happened all the same.
+    }
+  }, []);
 
   return (
     <div className="relative flex h-full overflow-hidden bg-background text-foreground">

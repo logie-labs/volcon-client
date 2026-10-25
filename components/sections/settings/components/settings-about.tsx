@@ -68,10 +68,18 @@ function BuildDetails({ source }: { source?: SourceState | null }) {
 
 /** Where the update check stands, in a word or two. */
 function UpdateSummary() {
-  const { checking, result } = useUpdates()
+  const { checking, result, download, skipped } = useUpdates()
 
-  const [text, tone] = checking
+  const [text, tone] = download.phase === "downloading"
+    ? [`Downloading ${download.version}, ${download.total > 0 ? Math.floor((download.received / download.total) * 100) : 0}%`, "new"]
+    : download.phase === "ready"
+    ? [`${download.version} ready to install`, "new"]
+    : download.phase === "failed"
+    ? [`Couldn't download ${download.version}`, "problem"]
+    : checking
     ? ["Checking…", "muted"]
+    : result?.status === "available" && skipped === result.latest.version
+    ? [`Skipped ${result.latest.version}`, "muted"]
     : !result
       ? ["Not checked yet", "muted"]
       : result.status === "available"
