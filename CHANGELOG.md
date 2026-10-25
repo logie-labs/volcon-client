@@ -4,7 +4,7 @@ Every release of Volcon, newest first. The format follows [Keep a Changelog](htt
 
 Each version's notes here become its release notes on GitHub, and what Volcon shows under *What's new* on Settings → Updates.
 
-## [0.1.2] - 2026-10-25
+## [0.1.3] - 2026-10-25
 
 ### Added
 
@@ -17,6 +17,10 @@ Each version's notes here become its release notes on GitHub, and what Volcon sh
 - Launch with Windows no longer flips on and off by itself, or says it couldn't change. It also keeps working after an update moves Volcon.
 - Volcon no longer says the version you've just installed is available.
 - An app no longer warns that it's also controlled by a control on another preset. Assignments left over like that, which a control could still quietly move, are cleared.
+
+## [0.1.2] - 2026-10-25
+
+Not released: its build failed before anything was published. Everything meant for it is in 0.1.3.
 
 ## [0.1.1] - 2026-10-25
 
@@ -44,6 +48,6 @@ The first release.
 - A check for new versions on GitHub, at most once a day, with what's new in them.
 - Report a problem, on Settings → About, which starts a bug report with your versions filled in.
 
-[0.1.2]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.2
+[0.1.3]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.3
 [0.1.1]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.1
 [0.1.0]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.0
