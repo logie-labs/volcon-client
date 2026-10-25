@@ -1,0 +1,24 @@
+name: Suggest an idea
+description: Something Volcon could do, or do better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The situation, or what gets in the way, rather than the fix. It helps find the best way to solve it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+      description: How you picture it working, if you have something in mind.
+
+  - type: input
+    id: controller
+    attributes:
+      label: Your controller
+      description: If it's about a particular MIDI controller, which one?
+      placeholder: Korg nanoKONTROL2

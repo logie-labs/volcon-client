@@ -1,0 +1,45 @@
+name: Report a problem
+description: Something in Volcon isn't working the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The quickest way in is from Volcon itself: **Settings → About → Report a problem** opens this form with *This PC* already filled in.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, as specifically as you can. A screenshot or a short clip helps.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: The steps that lead to the problem, if you know them.
+      value: |
+        1.
+
+  # Volcon's Report a problem fills this in through the URL, by this id - see
+  # `bugReportUrl` in lib/project.ts before renaming it.
+  - type: textarea
+    id: this-pc
+    attributes:
+      label: This PC
+      description: Your Volcon and Windows versions, and the controller you use. Report a problem in Volcon fills this in; otherwise, Volcon's version is on Settings → About.
+      placeholder: |
+        - Volcon 0.1.0
+        - Windows 11 (build 26100)
+        - Controllers: nanoKONTROL2
+    validations:
+      required: true

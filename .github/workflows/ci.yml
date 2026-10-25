@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**"]
+
+# A newer push to the same branch replaces a run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  interface:
+    name: Interface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      # The build writes next-env.d.ts, which the typecheck needs.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run lint
+
+  backend:
+    name: Backend
+    # The backend is built on Windows' own audio and shell APIs.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      # Where the built interface goes. The tests don't use it, but building
+      # the app expects the folder to be there.
+      - run: mkdir out
+
+      - run: cargo test --manifest-path src-tauri/Cargo.toml

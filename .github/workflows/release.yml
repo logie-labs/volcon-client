@@ -1,0 +1,94 @@
+name: Release
+
+# Pushing a version tag - `git tag v0.1.0`, then `git push origin v0.1.0` -
+# builds the Windows installer and publishes a release with it, using that
+# version's notes from CHANGELOG.md. The checks below stop it first if the
+# versions or the notes aren't ready, and a build that fails publishes nothing.
+#
+# Run it by hand from the Actions tab to build the installer without making a
+# release; it's kept with the run, to try before tagging.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Volcon compares its own version with the newest release's tag to say
+      # whether there's an update, so the two have to agree.
+      - name: Check the tag matches the version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          app=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          npm=$(node -p "require('./package.json').version")
+          cargo=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)
+
+          for version in "$app" "$npm" "$cargo"; do
+            if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::The tag is $GITHUB_REF_NAME, but the versions are $app in tauri.conf.json, $npm in package.json and $cargo in Cargo.toml. Set all three to match, then tag again."
+              exit 1
+            fi
+          done
+
+      - name: Take this version's notes from the changelog
+        id: notes
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # From the version's heading to the next one, leaving out the
+          # link definitions at the bottom of the file.
+          notes=$(awk -v version="$version" '
+            index($0, "## [" version "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found && /^\[[^]]*\]: / { next }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has nothing under ## [$version]. Write this version's notes there, then tag again."
+            exit 1
+          fi
+
+          {
+            echo "body<<CHANGELOG_EOF"
+            printf '%s\n' "$notes"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      # Without a tag (a run by hand) there's no release: the installer is
+      # kept with the run instead.
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && 'Volcon __VERSION__' || '' }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          uploadUpdaterJson: false
+          uploadWorkflowArtifacts: ${{ github.ref_type != 'tag' }}

@@ -1,0 +1,5 @@
+export * from "./settings-sections"
+export { AboutSection } from "./settings-about"
+export { BackupSection } from "./settings-backup"
+export { DiagnosticsSection } from "./settings-diagnostics"
+export { UpdatesSection } from "./settings-updates"

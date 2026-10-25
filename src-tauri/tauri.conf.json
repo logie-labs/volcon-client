@@ -1,0 +1,72 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Volcon",
+  "version": "0.1.0",
+  "identifier": "com.volcon.desktop",
+  "build": {
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev:web",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Volcon",
+        
+        "width": 1000,
+        "minWidth": 590,
+
+        "height": 600,
+        "minHeight": 500,
+
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HideCursorWhileTyping,CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required"
+      },
+      {
+        "label": "overlay",
+        "title": "Volcon Overlay",
+        "url": "/overlay",
+        "width": 240,
+        "height": 226,
+        "x": 20,
+        "y": 20,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "minimizable": false,
+        "closable": false,
+        "focus": false,
+        "focusable": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,HideCursorWhileTyping,CalculateNativeWinOcclusion --autoplay-policy=no-user-gesture-required"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "Logie Labs",
+    "copyright": "Copyright © 2026 Logie Labs",
+    "shortDescription": "Turn a MIDI controller into a volume mixer for Windows.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

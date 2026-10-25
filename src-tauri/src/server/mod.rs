@@ -1,0 +1,11 @@
+pub mod audio;
+pub mod bridge;
+pub mod diagnostics;
+pub mod error;
+pub mod input;
+pub mod midi;
+pub mod models;
+pub mod overlay;
+pub mod process;
+pub mod shell;
+pub mod state;
