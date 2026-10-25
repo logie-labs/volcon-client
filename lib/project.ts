@@ -3,9 +3,9 @@
  * update check reads. Everything that links out goes through here, so moving
  * the repository is one change.
  *
- * The repository isn't public yet. Until it is, the links lead to GitHub's
- * "not found" page and the update check finds nothing to compare against; both
- * say so rather than failing loudly, and both start working the day it opens.
+ * All of it needs the repository to be public. While it isn't, the links lead
+ * to GitHub's "not found" page and the update check finds nothing to compare
+ * against; both say so rather than failing loudly.
  */
 
 export const repository = {

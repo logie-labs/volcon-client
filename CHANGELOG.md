@@ -4,6 +4,12 @@ Every release of Volcon, newest first. The format follows [Keep a Changelog](htt
 
 Each version's notes here become its release notes on GitHub, and what Volcon shows under *What's new* on Settings → Updates.
 
+## [0.1.1] - 2026-10-25
+
+### Fixed
+
+- Settings → About names an installed version by the commit it was built from, and nothing more. *+ changes* now only shows in development builds, and goes by the code as it stands.
+
 ## [0.1.0] - 2026-10-25
 
 The first release.
@@ -24,4 +30,5 @@ The first release.
 - A check for new versions on GitHub, at most once a day, with what's new in them.
 - Report a problem, on Settings → About, which starts a bug report with your versions filled in.
 
+[0.1.1]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.1
 [0.1.0]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.0

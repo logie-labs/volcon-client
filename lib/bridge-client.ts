@@ -278,7 +278,11 @@ export type DiagnosticsInfo = {
   os: string;
   logDir: string | null;
   logging: { level: string; verbose: boolean };
+  /** How the source folder stands right now; development builds only. */
+  source?: SourceState | null;
 };
+
+export type SourceState = { commit: string; changed: boolean };
 
 /** Versions, the OS and where the log is, for a bug report. */
 export function getDiagnosticsInfo() {

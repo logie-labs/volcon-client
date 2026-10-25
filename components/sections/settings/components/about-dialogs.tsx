@@ -24,7 +24,7 @@ import {
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { getDiagnosticsInfo, listInputs, openExternal } from "@/lib/bridge-client"
-import { buildInfo, describeBuildTime } from "@/lib/build-info"
+import { buildInfo, describeBuildTime, describeCommit } from "@/lib/build-info"
 import { getNotifications, toast } from "@/lib/notifications"
 import { bugReportUrl } from "@/lib/project"
 import { appVersion } from "@/lib/version"
@@ -261,8 +261,9 @@ async function thisPcDetails() {
     // Answered even by a backend too old to report the rest.
     appVersion().catch(() => null),
   ])
-  const build = buildInfo.shortCommit
-    ? `build ${buildInfo.shortCommit}${buildInfo.changed ? " with uncommitted changes" : ""}${buildInfo.builtAt ? `, ${describeBuildTime(buildInfo.builtAt)}` : ""}${buildInfo.development ? " (development)" : ""}`
+  const { shortCommit, changed } = describeCommit(info?.source)
+  const build = shortCommit
+    ? `build ${shortCommit}${changed ? " with uncommitted changes" : ""}${buildInfo.builtAt ? `, ${describeBuildTime(buildInfo.builtAt)}` : ""}${buildInfo.development ? " (development)" : ""}`
     : null
   const errors = getNotifications()
     .filter((entry) => entry.kind === "error")

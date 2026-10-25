@@ -5,8 +5,8 @@ import { RiFireLine, RiGithubFill } from "@remixicon/react"
 
 import PixelBlast from "@/components/PixelBlast"
 import { Button } from "@/components/ui/button"
-import { getDiagnosticsInfo, openExternal, type DiagnosticsInfo } from "@/lib/bridge-client"
-import { buildInfo, describeBuildTime } from "@/lib/build-info"
+import { getDiagnosticsInfo, openExternal, type DiagnosticsInfo, type SourceState } from "@/lib/bridge-client"
+import { buildInfo, describeBuildTime, describeCommit } from "@/lib/build-info"
 import { toast } from "@/lib/notifications"
 import { commitUrl, repositoryUrl } from "@/lib/project"
 import { useUpdates } from "@/lib/updates"
@@ -31,8 +31,9 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
  * When this was built and from which commit - the commit linking to it on
  * GitHub - so one build can be told from the next.
  */
-function BuildDetails() {
-  const { commit, shortCommit, changed, builtAt, development } = buildInfo
+function BuildDetails({ source }: { source?: SourceState | null }) {
+  const { builtAt, development } = buildInfo
+  const { commit, shortCommit, changed } = describeCommit(source)
 
   if (!commit && !builtAt) {
     return "-"
@@ -56,7 +57,7 @@ function BuildDetails() {
         </button>
       ) : null}
       {changed ? (
-        <span className="text-amber-600 dark:text-amber-400" title="Built with changes that weren't committed yet">
+        <span className="text-amber-600 dark:text-amber-400" title="The code has changes that aren't committed yet">
           + changes
         </span>
       ) : null}
@@ -181,7 +182,7 @@ export function AboutSection() {
               </span>
             }
           />
-          <InfoRow label="Build" value={<BuildDetails />} />
+          <InfoRow label="Build" value={<BuildDetails source={info?.source} />} />
           <InfoRow label="Tauri" value={info?.tauriVersion} />
           <InfoRow label="WebView2" value={webView} />
           <InfoRow label="Windows" value={info?.os} />

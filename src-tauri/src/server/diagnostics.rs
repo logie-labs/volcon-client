@@ -167,7 +167,38 @@ pub fn diagnostics_info<R: Runtime>(app: AppHandle<R>) -> Value {
             "level": level.name(),
             "verbose": verbose,
         },
+        "source": source_state(),
     })
+}
+
+/// The source folder's commit, and whether it has changes not yet committed,
+/// read fresh each time - so a development build's About page stays true as
+/// you commit. Only a development build has the folder it was built from to
+/// look in; an installed one answers null and is named by its commit alone.
+fn source_state() -> Value {
+    #[cfg(debug_assertions)]
+    {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .ok()?;
+
+            output
+                .status
+                .success()
+                .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        };
+
+        if let Some(commit) = git(&["rev-parse", "HEAD"]) {
+            let changed = git(&["status", "--porcelain"]).is_some_and(|status| !status.is_empty());
+            return json!({ "commit": commit, "changed": changed });
+        }
+    }
+
+    Value::Null
 }
 
 /// The Windows edition, release and build, such as "Windows 11 Pro 25H2 (build
@@ -299,5 +330,16 @@ mod tests {
         let version = os_version();
         assert!(version.starts_with("Windows"), "{version}");
         assert!(version.contains("(build "), "{version}");
+    }
+
+    #[test]
+    fn a_development_build_reads_its_own_source_folder() {
+        // Tests are development builds, run from the git checkout.
+        let source = source_state();
+        let commit = source["commit"].as_str().expect("a commit");
+
+        assert_eq!(commit.len(), 40, "{commit}");
+        assert!(commit.chars().all(|c| c.is_ascii_hexdigit()), "{commit}");
+        assert!(source["changed"].is_boolean());
     }
 }
