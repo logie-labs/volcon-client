@@ -38,7 +38,11 @@ import {
 import { Slider } from "@/components/ui/slider"
 import { VolumeNumber } from "@/components/volume-number"
 import { useControlPercent, useControlValue } from "@/lib/control-volume-store"
-import { resolveLevelPercent, useActiveCurve } from "@/lib/volume-levels"
+import {
+  resolveLevelPercent,
+  useActiveCurve,
+  wholeLevelPercent,
+} from "@/lib/volume-levels"
 
 import { AssignedAppDialog } from "./assigned-app-dialog"
 import { AppIconContent, AppStatusLine, LevelBars } from "./assigned-app-parts"
@@ -104,10 +108,11 @@ export function AssignedAppRow({
   // Windows is actually set to once the curve has had its say. A mute leaves
   // the mixer level where it is and sets the mute flag alongside it.
   //
-  // The mixer figure carries two decimals: a strong curve pushes the bottom of a
-  // control well under 1%, which a whole number would just call 0%. It's worked
-  // from the raw position, as the backend does, rather than the rounded percent.
-  const levelPercent = Math.round(controlPercent * trim)
+  // With the curve off the two are the same whole number. With it on, the mixer
+  // figure carries two decimals: a strong curve pushes the bottom of a control
+  // well under 1%, which a whole number would just call 0%. It's worked from the
+  // raw position, as the backend does, rather than the rounded percent.
+  const levelPercent = wholeLevelPercent(controlPercent, trim)
   const mixerPercent =
     Math.round(
       resolveLevelPercent(
@@ -277,7 +282,7 @@ export function AssignedAppRow({
                         Mixer{" "}
                         <VolumeNumber
                           value={mixerPercent}
-                          decimals={2}
+                          decimals={curve.enabled ? 2 : undefined}
                           className="text-foreground/80"
                         />
                         %

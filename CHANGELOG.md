@@ -18,6 +18,7 @@ Each version's notes here become its release notes on GitHub, and what Volcon sh
 ### Fixed
 
 - Report a problem opens GitHub in your browser instead of File Explorer, and so do Volcon's other links.
+- With the logarithmic curve off, an app is set to exactly the level its control shows: a control at 14% puts it at 14% in the Windows mixer, not 14.17%. Mixer levels only have decimals with the curve on.
 
 ## [0.1.5] - 2026-10-25
 

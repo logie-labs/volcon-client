@@ -196,7 +196,11 @@ export function AssignedAppDialog({
                     <span className="text-destructive">Muted</span>
                   ) : (
                     <>
-                      <VolumeNumber value={mixerPercent} decimals={2} />%
+                      <VolumeNumber
+                        value={mixerPercent}
+                        decimals={curve.enabled ? 2 : undefined}
+                      />
+                      %
                     </>
                   )}
                 </Stage>

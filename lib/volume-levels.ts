@@ -47,9 +47,29 @@ export function shapePosition(position: number, curve: VolumeCurve) {
   return clamped ** gamma(curve)
 }
 
+function saneTrim(trim: number) {
+  return Math.max(0, Math.min(1, sane(trim, 1)))
+}
+
+/**
+ * The level with the curve off: the position and the trim as whole percents,
+ * multiplied and rounded to a whole percent again, so a control at 14% sets
+ * 14%. Mirrors `whole_percent_level` in levels.rs, in whole numbers on both
+ * sides so the two can't round a hair apart.
+ */
+export function wholeLevelPercent(positionPercent: number, trim: number) {
+  const position = Math.round(
+    Math.max(0, Math.min(100, sane(positionPercent, 0)))
+  )
+  const trimPercent = Math.round(saneTrim(trim) * 100)
+
+  return Math.floor((position * trimPercent + 50) / 100)
+}
+
 /**
  * The whole chain, in the percentages the UI carries levels around in: where a
- * control sits, in, and what the app is actually set to, out.
+ * control sits, in, and what the app is actually set to, out. A whole percent
+ * with the curve off; with it on, the exact figure.
  */
 export function resolveLevelPercent(
   positionPercent: number,
@@ -60,8 +80,12 @@ export function resolveLevelPercent(
     return 0
   }
 
+  if (!curve.enabled) {
+    return wholeLevelPercent(positionPercent, modifiers.trim)
+  }
+
   const shaped = shapePosition(positionPercent / 100, curve)
-  const trimmed = shaped * Math.max(0, Math.min(1, sane(modifiers.trim, 1)))
+  const trimmed = shaped * saneTrim(modifiers.trim)
 
   return Math.max(0, Math.min(100, trimmed * 100))
 }
