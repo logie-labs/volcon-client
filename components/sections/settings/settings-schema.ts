@@ -200,8 +200,9 @@ export const settingEntries: SettingEntry[] = [
     page: "startup",
     group: "Launch",
     label: "Launch with Windows",
-    description: "Start Volcon when you sign in to Windows.",
-    keywords: ["autostart", "boot", "login", "sign in", "startup"],
+    description:
+      "Start Volcon when you sign in to Windows. It's the same switch as Volcon's entry in Startup apps, in Windows' Settings and Task Manager.",
+    keywords: ["autostart", "boot", "login", "sign in", "startup", "startup apps", "task manager"],
   },
   {
     id: "startup.openToTray",

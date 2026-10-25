@@ -697,8 +697,11 @@ export async function reconcileBackendSettings() {
 /** Set before Reset everything reloads Volcon, so the fresh start can say so. */
 export const justResetKey = "volcon.just-reset"
 
-/** How often Windows is asked whether it still starts Volcon. */
-const LAUNCH_READ_INTERVAL_MS = 10_000
+/**
+ * How often Windows is asked whether it still starts Volcon, besides being told
+ * straight away by the backend: in case a change slips past it.
+ */
+const LAUNCH_READ_INTERVAL_MS = 30_000
 
 /** Says a change to Launch with Windows didn't take, and why. */
 function complainAboutLaunch(wanted: boolean, reason: string) {
@@ -722,12 +725,14 @@ function complainAboutLaunch(wanted: boolean, reason: string) {
 /**
  * Keeps the startup settings that live outside the app in step with it.
  *
- * Whether Windows starts Volcon is Windows' to say - Task Manager can switch it
- * off too - so it's read on start, when the window comes back, and every few
- * seconds, and the setting simply follows. Only a change made here (the switch,
- * a reset, an import, the command menu) is sent to Windows, one at a time, and
- * the switch then shows what Windows did with it. Reading never sends anything
- * back, so the setting and Windows can't keep flipping each other.
+ * Launch with Windows is the same switch as Volcon's entry in Startup apps, in
+ * Windows' Settings and Task Manager, so it's Windows' to say. The backend says
+ * the moment it changes there, it's read again on start and when the window
+ * comes back, and the setting simply follows. Only a change made here (the
+ * switch, a reset, an import, the command menu) is sent to Windows, one at a
+ * time, and the switch then shows what Windows did with it. Following never
+ * sends anything back, so the setting and Windows can't keep flipping each
+ * other.
  *
  * Whether it opens hidden is the backend's to read at launch, and is sent to it
  * whenever it changes.
@@ -821,6 +826,28 @@ function startStartupSync() {
 
   const onFocus = () => void read()
   const timer = window.setInterval(onFocus, LAUNCH_READ_INTERVAL_MS)
+  let stopListening: (() => void) | null = null
+  let stopped = false
+
+  // Switched in Startup apps - or by this window, which is already in step.
+  if (managesWindows) {
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) =>
+        listen<boolean>("launch:changed", (event) => {
+          if (!sending) {
+            adopt(event.payload)
+          }
+        })
+      )
+      .then((unlisten) => {
+        if (stopped) {
+          unlisten()
+        } else {
+          stopListening = unlisten
+        }
+      })
+      .catch(() => {})
+  }
 
   apply()
   void read()
@@ -828,8 +855,10 @@ function startStartupSync() {
   const unsubscribe = subscribeToSettings(apply)
 
   return () => {
+    stopped = true
     window.clearInterval(timer)
     window.removeEventListener("focus", onFocus)
+    stopListening?.()
     unsubscribe()
   }
 }

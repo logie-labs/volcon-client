@@ -65,10 +65,11 @@ pub fn run() {
             app.manage(bridge::BridgeService::new(app.handle().clone()));
             app.manage(server::updater::Updater::new(app.handle()));
 
-            // An installed copy keeps Launch with Windows pointed at itself,
-            // wherever an update put it.
+            // An installed copy is always listed in Windows' Startup apps,
+            // pointing at itself wherever an update put it, and follows that
+            // switch. A development build would list a temporary executable.
             if !cfg!(debug_assertions) {
-                server::launch::repair(app.handle());
+                server::launch::start(app.handle());
             }
 
             // tray behaviour

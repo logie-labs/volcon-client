@@ -1,29 +1,48 @@
-//! Whether Windows starts Volcon when you sign in.
+//! Whether Windows starts Volcon when you sign in: the same switch as Volcon's
+//! entry in Startup apps, in Windows' Settings and in Task Manager.
 //!
-//! That's Volcon's value under the Run key, read and written here directly.
-//! Task Manager's Startup apps can switch an app off without removing it,
-//! which it records under StartupApproved, so both are read to say whether
-//! Volcon really starts. Every change can be made twice - turning off what's
-//! already off is fine - so the setting and Windows never argue over it.
+//! Volcon is always listed there - its value under the Run key always exists,
+//! pointing at this copy. On and off are the flag Windows itself keeps for each
+//! startup app, under StartupApproved, so switching it in Volcon, in Settings or
+//! in Task Manager is one and the same switch. The keys are watched, so each
+//! sees the others' changes straight away.
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use windows::core::{w, HSTRING, PCWSTR};
-use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+use windows::Win32::Foundation::{ERROR_SUCCESS, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::System::Registry::{
-    RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegGetValueW, RegSetValueExW, HKEY,
-    HKEY_CURRENT_USER, KEY_SET_VALUE, REG_BINARY, REG_OPTION_NON_VOLATILE, REG_SZ,
-    REG_VALUE_TYPE, RRF_RT_REG_BINARY, RRF_RT_REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegGetValueW, RegNotifyChangeKeyValue, RegSetValueExW, HKEY,
+    HKEY_CURRENT_USER, KEY_NOTIFY, KEY_SET_VALUE, REG_BINARY, REG_NOTIFY_CHANGE_LAST_SET,
+    REG_OPTION_NON_VOLATILE, REG_SAM_FLAGS, REG_SZ, REG_VALUE_TYPE, RRF_RT_REG_BINARY,
+    RRF_RT_REG_SZ,
 };
+use windows::Win32::System::Threading::{CreateEventW, WaitForMultipleObjects, INFINITE};
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const APPROVED_KEY: PCWSTR =
     w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run");
 
-/// What Task Manager writes for an app it lets start. Switched off there, the
-/// first byte turns odd and the rest say when.
+/// What Windows writes for a startup app that's switched on.
 const APPROVED_ON: [u8; 12] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+/// What Windows writes for one that's switched off: an odd first byte, then
+/// when it was switched off.
+fn approved_off() -> [u8; 12] {
+    // FILETIME counts 100-nanosecond steps from 1601; Unix time starts in 1970.
+    const SECONDS_FROM_1601_TO_1970: u64 = 11_644_473_600;
+    let since_1970 = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let filetime = (since_1970.as_secs() + SECONDS_FROM_1601_TO_1970) * 10_000_000
+        + u64::from(since_1970.subsec_nanos() / 100);
+
+    let mut bytes = [0u8; 12];
+    bytes[0] = 3;
+    bytes[4..].copy_from_slice(&filetime.to_le_bytes());
+    bytes
+}
 
 /// Volcon's name under both keys: its product name, as the autostart plugin
 /// that came before this used, so entries it made are still Volcon's.
@@ -37,7 +56,7 @@ fn launch_command(exe: &Path) -> String {
     format!("\"{}\"", exe.display())
 }
 
-/// The command Windows runs for Volcon at sign-in, if it has one.
+/// The command Windows runs for Volcon at sign-in, if it's listed.
 fn registered_command(name: &HSTRING) -> Option<String> {
     let mut buffer = vec![0u16; 2048];
     let mut size = (buffer.len() * 2) as u32;
@@ -61,9 +80,9 @@ fn registered_command(name: &HSTRING) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..len]))
 }
 
-/// Whether Task Manager has switched Volcon off. No entry there means it
-/// hasn't been asked.
-fn switched_off_in_task_manager(name: &HSTRING) -> bool {
+/// Whether the switch is on, if Windows has recorded it at all. An app it has
+/// no record of counts as on.
+fn approved_state(name: &HSTRING) -> Option<bool> {
     let mut bytes = [0u8; 32];
     let mut size = bytes.len() as u32;
 
@@ -79,11 +98,11 @@ fn switched_off_in_task_manager(name: &HSTRING) -> bool {
         )
     };
 
-    result == ERROR_SUCCESS && size > 0 && bytes[0] & 1 == 1
+    (result == ERROR_SUCCESS && size > 0).then(|| bytes[0] & 1 == 0)
 }
 
-/// Writes a value, making its key first if Windows hasn't yet.
-fn set_value(key_path: PCWSTR, name: &HSTRING, kind: REG_VALUE_TYPE, data: &[u8]) -> Result<(), String> {
+/// Opens a key, making it first if Windows hasn't yet.
+fn open(key_path: PCWSTR, access: REG_SAM_FLAGS) -> Result<HKEY, String> {
     let mut key = HKEY::default();
 
     unsafe {
@@ -93,7 +112,7 @@ fn set_value(key_path: PCWSTR, name: &HSTRING, kind: REG_VALUE_TYPE, data: &[u8]
             0,
             PCWSTR::null(),
             REG_OPTION_NON_VOLATILE,
-            KEY_SET_VALUE,
+            access,
             None,
             &mut key,
             None,
@@ -102,6 +121,11 @@ fn set_value(key_path: PCWSTR, name: &HSTRING, kind: REG_VALUE_TYPE, data: &[u8]
     .ok()
     .map_err(|err| err.message())?;
 
+    Ok(key)
+}
+
+fn set_value(key_path: PCWSTR, name: &HSTRING, kind: REG_VALUE_TYPE, data: &[u8]) -> Result<(), String> {
+    let key = open(key_path, KEY_SET_VALUE)?;
     let result = unsafe { RegSetValueExW(key, name, 0, kind, Some(data)) };
 
     unsafe {
@@ -109,14 +133,6 @@ fn set_value(key_path: PCWSTR, name: &HSTRING, kind: REG_VALUE_TYPE, data: &[u8]
     }
 
     result.ok().map_err(|err| err.message())
-}
-
-/// Removes a value; one that isn't there is already removed.
-fn delete_value(key_path: PCWSTR, name: &HSTRING) -> Result<(), String> {
-    match unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key_path, name) } {
-        ERROR_SUCCESS | ERROR_FILE_NOT_FOUND => Ok(()),
-        error => error.ok().map_err(|err| err.message()),
-    }
 }
 
 /// A string as the registry stores one: UTF-16, ending in a null.
@@ -127,70 +143,155 @@ fn registry_text(text: &str) -> Vec<u8> {
         .collect()
 }
 
-fn is_registered(name: &HSTRING) -> bool {
-    registered_command(name).is_some() && !switched_off_in_task_manager(name)
+fn is_enabled(name: &HSTRING) -> bool {
+    registered_command(name).is_some() && approved_state(name) != Some(false)
 }
 
-fn register(name: &HSTRING, exe: &Path) -> Result<(), String> {
-    set_value(RUN_KEY, name, REG_SZ, &registry_text(&launch_command(exe)))?;
-    // Approved too, in case Task Manager had switched it off before.
-    set_value(APPROVED_KEY, name, REG_BINARY, &APPROVED_ON)
+/// Where Volcon keeps its own note of the switch, for when the listing has to
+/// be made again - after an uninstall took it away, or an upgrade that
+/// uninstalled first. Windows' record can't be trusted then: older versions
+/// left it saying "on" for listings they'd removed.
+fn memory_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    app.path().app_local_data_dir().ok().map(|dir| dir.join("launch-with-windows"))
 }
 
-fn unregister(name: &HSTRING) -> Result<(), String> {
-    delete_value(RUN_KEY, name)?;
-    // So Task Manager doesn't keep listing an app that's gone.
-    delete_value(APPROVED_KEY, name)
+fn remember<R: Runtime>(app: &AppHandle<R>, enabled: bool) {
+    let Some(path) = memory_path(app) else {
+        return;
+    };
+
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+
+    let _ = fs::write(path, if enabled { "on" } else { "off" });
+}
+
+fn remembered<R: Runtime>(app: &AppHandle<R>) -> Option<bool> {
+    match fs::read_to_string(memory_path(app)?).ok()?.trim() {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
+    }
+}
+
+/// Lists Volcon in Startup apps, pointing at `exe`, if it isn't already. A
+/// listing that's there keeps its switch, wherever it pointed. One made afresh
+/// is switched as Volcon last knew it, `remembered` - off, the first time.
+fn ensure_listed(name: &HSTRING, exe: &Path, remembered: Option<bool>) -> Result<(), String> {
+    let wanted = launch_command(exe);
+
+    match registered_command(name) {
+        Some(command) if command.trim() == wanted => Ok(()),
+        Some(_) => set_value(RUN_KEY, name, REG_SZ, &registry_text(&wanted)),
+        None => {
+            let enabled = remembered.unwrap_or(false);
+
+            // The switch first, so Windows never sees a listing it would start
+            // by mistake.
+            set_value(APPROVED_KEY, name, REG_BINARY, &if enabled { APPROVED_ON } else { approved_off() })?;
+            set_value(RUN_KEY, name, REG_SZ, &registry_text(&wanted))
+        }
+    }
 }
 
 /// Whether Windows starts Volcon when you sign in.
 #[tauri::command]
 pub fn launch_at_sign_in<R: Runtime>(app: AppHandle<R>) -> bool {
-    is_registered(&value_name(&app))
+    is_enabled(&value_name(&app))
 }
 
-/// Has Windows start Volcon when you sign in, or stop, and answers with what
-/// Windows is set to afterwards.
+/// Switches Launch with Windows on or off - the same switch as in Startup apps
+/// - and answers with what Windows is set to afterwards.
 #[tauri::command]
 pub fn set_launch_at_sign_in<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<bool, String> {
-    // A development build would register its own, temporary executable.
+    // A development build would list its own, temporary executable.
     if cfg!(debug_assertions) {
         return Err("A development build doesn't register itself with Windows.".into());
     }
 
     let name = value_name(&app);
+    let exe = std::env::current_exe().map_err(|err| err.to_string())?;
 
-    if enabled {
-        let exe = std::env::current_exe().map_err(|err| err.to_string())?;
-        register(&name, &exe)?;
-    } else {
-        unregister(&name)?;
-    }
+    ensure_listed(&name, &exe, remembered(&app))?;
+    set_value(
+        APPROVED_KEY,
+        &name,
+        REG_BINARY,
+        &if enabled { APPROVED_ON } else { approved_off() },
+    )?;
 
-    log::info!("launch with Windows {}", if enabled { "on" } else { "off" });
-    Ok(is_registered(&name))
+    let now = is_enabled(&name);
+    remember(&app, now);
+    log::info!("launch with Windows {}", if now { "on" } else { "off" });
+    Ok(now)
 }
 
-/// Points Volcon's entry at this copy if it names another - an install in a
-/// different folder, the executable's old name, the old unquoted form - so an
-/// update can't quietly stop Volcon starting with Windows. Nothing changes
-/// when there's no entry, and one Task Manager switched off stays off.
-pub fn repair<R: Runtime>(app: &AppHandle<R>) {
+/// As Volcon starts: listed in Startup apps and pointing at this copy, whatever
+/// an update, an uninstall or the executable's old name left behind - then
+/// watched, so Volcon's switch follows Windows'.
+pub fn start<R: Runtime>(app: &AppHandle<R>) {
     let name = value_name(app);
 
-    let (Some(command), Ok(exe)) = (registered_command(&name), std::env::current_exe()) else {
-        return;
-    };
-
-    let wanted = launch_command(&exe);
-
-    if command.trim() == wanted {
-        return;
+    match std::env::current_exe() {
+        Ok(exe) => match ensure_listed(&name, &exe, remembered(app)) {
+            Ok(()) => remember(app, is_enabled(&name)),
+            Err(err) => log::warn!("couldn't list Volcon in Startup apps: {err}"),
+        },
+        Err(err) => log::warn!("couldn't find Volcon's own executable: {err}"),
     }
 
-    match set_value(RUN_KEY, &name, REG_SZ, &registry_text(&wanted)) {
-        Ok(()) => log::info!("launch with Windows now starts {}", exe.display()),
-        Err(err) => log::warn!("couldn't point launch with Windows at {}: {err}", exe.display()),
+    let app = app.clone();
+
+    std::thread::spawn(move || {
+        let heard = watch(&name, |enabled| {
+            remember(&app, enabled);
+            let _ = app.emit("launch:changed", enabled);
+        });
+
+        if let Err(err) = heard {
+            log::warn!("stopped watching Startup apps: {err}");
+        }
+    });
+}
+
+/// Waits on both keys, and calls `on_change` whenever Volcon's switch ends up
+/// different, whoever changed it.
+fn watch(name: &HSTRING, mut on_change: impl FnMut(bool)) -> Result<(), String> {
+    let keys = [open(RUN_KEY, KEY_NOTIFY)?, open(APPROVED_KEY, KEY_NOTIFY)?];
+    let events: [HANDLE; 2] = [
+        unsafe { CreateEventW(None, false, false, PCWSTR::null()) }.map_err(|err| err.message())?,
+        unsafe { CreateEventW(None, false, false, PCWSTR::null()) }.map_err(|err| err.message())?,
+    ];
+
+    // Each notice comes once, so it's asked for again after each one.
+    let arm = |index: usize| {
+        unsafe { RegNotifyChangeKeyValue(keys[index], false, REG_NOTIFY_CHANGE_LAST_SET, events[index], true) }
+            .ok()
+            .map_err(|err| err.message())
+    };
+
+    arm(0)?;
+    arm(1)?;
+
+    let mut last = is_enabled(name);
+
+    loop {
+        let signalled = unsafe { WaitForMultipleObjects(&events, false, INFINITE) };
+        let index = signalled.0.wrapping_sub(WAIT_OBJECT_0.0) as usize;
+
+        if index >= events.len() {
+            return Err(format!("waiting on the registry failed ({})", signalled.0));
+        }
+
+        arm(index)?;
+
+        let now = is_enabled(name);
+
+        if now != last {
+            last = now;
+            on_change(now);
+        }
     }
 }
 
@@ -213,10 +314,118 @@ mod tests {
     }
 
     #[test]
-    fn removing_what_isnt_there_is_fine() {
-        // A name nothing will ever have registered.
+    fn off_is_an_odd_flag_stamped_with_now() {
+        let off = approved_off();
+        assert_eq!(off[0] & 1, 1);
+        assert_eq!(&off[1..4], &[0, 0, 0]);
+
+        // Some time this century, in FILETIME's terms.
+        let filetime = u64::from_le_bytes(off[4..].try_into().unwrap());
+        assert!(filetime > 125_000_000_000_000_000, "{filetime}");
+        assert_eq!(APPROVED_ON[0] & 1, 0);
+    }
+
+    #[test]
+    fn an_app_windows_has_no_record_of_isnt_listed() {
         let name = HSTRING::from("Volcon test entry that does not exist");
-        assert!(delete_value(RUN_KEY, &name).is_ok());
-        assert!(!is_registered(&name));
+        assert_eq!(approved_state(&name), None);
+        assert!(!is_enabled(&name));
+    }
+
+    /// A listing of its own, so the real one is never touched, and gone again
+    /// once the test is done.
+    struct TestListing(HSTRING);
+
+    impl TestListing {
+        fn new(label: &str) -> Self {
+            let listing = Self(HSTRING::from(format!("Volcon test {label} {}", std::process::id())));
+            listing.remove();
+            listing
+        }
+
+        fn remove(&self) {
+            for key in [RUN_KEY, APPROVED_KEY] {
+                unsafe {
+                    let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, key, &self.0);
+                }
+            }
+        }
+
+        /// As Startup apps does it, when it's switched there.
+        fn switch(&self, on: bool) {
+            set_value(APPROVED_KEY, &self.0, REG_BINARY, &if on { APPROVED_ON } else { approved_off() }).unwrap();
+        }
+    }
+
+    impl Drop for TestListing {
+        fn drop(&mut self) {
+            self.remove();
+        }
+    }
+
+    #[test]
+    fn a_listing_starts_off_and_keeps_its_switch_through_moves_and_reinstalls() {
+        let listing = TestListing::new("listing");
+        let name = &listing.0;
+        let installed = Path::new(r"C:\Users\Jo Bloggs\AppData\Local\Volcon\volcon.exe");
+
+        ensure_listed(name, installed, None).unwrap();
+        assert_eq!(
+            registered_command(name).as_deref(),
+            Some(r#""C:\Users\Jo Bloggs\AppData\Local\Volcon\volcon.exe""#)
+        );
+        assert!(!is_enabled(name), "a first listing starts off");
+
+        listing.switch(true);
+        assert!(is_enabled(name));
+
+        // Installed somewhere else: the listing follows, the switch stays.
+        ensure_listed(name, Path::new(r"D:\Apps\Volcon\volcon.exe"), Some(false)).unwrap();
+        assert_eq!(registered_command(name).as_deref(), Some(r#""D:\Apps\Volcon\volcon.exe""#));
+        assert!(is_enabled(name));
+
+        // Uninstalled, with Windows' old record left saying "on": it comes back
+        // as Volcon remembers it, and off when it doesn't.
+        unsafe {
+            let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, name);
+        }
+        ensure_listed(name, installed, None).unwrap();
+        assert!(!is_enabled(name));
+
+        unsafe {
+            let _ = windows::Win32::System::Registry::RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, name);
+        }
+        ensure_listed(name, installed, Some(true)).unwrap();
+        assert!(is_enabled(name));
+    }
+
+    #[test]
+    fn switching_it_in_startup_apps_is_heard_straight_away() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let listing = TestListing::new("watch");
+        ensure_listed(&listing.0, Path::new(r"C:\Volcon\volcon.exe"), None).unwrap();
+
+        let (heard, hear) = mpsc::channel();
+        let watched = listing.0.clone();
+        std::thread::spawn(move || {
+            let _ = watch(&watched, |enabled| {
+                let _ = heard.send(enabled);
+            });
+        });
+
+        // Time for the watch to start before anything changes.
+        std::thread::sleep(Duration::from_millis(300));
+
+        listing.switch(true);
+        assert_eq!(hear.recv_timeout(Duration::from_secs(5)), Ok(true));
+
+        listing.switch(false);
+        assert_eq!(hear.recv_timeout(Duration::from_secs(5)), Ok(false));
+
+        // Switched off again: nothing changed, so nothing's said.
+        listing.switch(false);
+        assert!(hear.recv_timeout(Duration::from_millis(500)).is_err());
     }
 }

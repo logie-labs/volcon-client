@@ -4,6 +4,13 @@ Every release of Volcon, newest first. The format follows [Keep a Changelog](htt
 
 Each version's notes here become its release notes on GitHub, and what Volcon shows under *What's new* on Settings → Updates.
 
+## [0.1.5] - 2026-10-25
+
+### Changed
+
+- Launch with Windows is now the same switch as Volcon's entry in Startup apps, in Windows' Settings and Task Manager. Volcon is always listed there, and switching it on or off in either place switches it in both, straight away.
+- Uninstalling Volcon takes it out of Startup apps. Reinstall it and it's listed again, switched the way it was.
+
 ## [0.1.4] - 2026-10-25
 
 ### Added
@@ -52,6 +59,7 @@ The first release.
 - A check for new versions on GitHub, at most once a day, with what's new in them.
 - Report a problem, on Settings → About, which starts a bug report with your versions filled in.
 
+[0.1.5]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.5
 [0.1.4]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.4
 [0.1.1]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.1
 [0.1.0]: https://github.com/logie-labs/volcon-client/releases/tag/v0.1.0
