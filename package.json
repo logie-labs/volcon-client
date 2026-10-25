@@ -1,6 +1,6 @@
 {
   "name": "volcon",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Turn a MIDI controller into a volume mixer for Windows.",
   "license": "MIT",
   "homepage": "https://github.com/logie-labs/volcon-client",
